@@ -1,0 +1,5 @@
+﻿  The system cannot find the file specified.
+  C:\Users\danhe\OneDrive\Documents\GitHub\MacView\snow\target\Debug\snow.* 
+          0 file(s) copied.
+EXEC : error : no library targets found in package `snow_frontend_egui`
+C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Microsoft\VC\v170\Microsoft.MakeFile.Targets(45,5): error MSB3073: The command "C:\msys64\usr\bin\bash.exe -c "cargo build --lib" | copy C:\Users\danhe\OneDrive\Documents\GitHub\MacView\snow\target\Debug\snow.* C:\Users\danhe\OneDrive\Documents\GitHub\MacView\MacSE.UI\bin\Debug\net9.0-windows7.0\" exited with code 1.
