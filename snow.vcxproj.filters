@@ -1,0 +1,624 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <None Include="Cargo.toml" />
+    <None Include=".gitignore" />
+    <None Include=".gitmodules" />
+    <None Include="LICENSE" />
+    <None Include="README.md" />
+    <None Include="rust-toolchain.toml" />
+    <None Include="core\Cargo.lock">
+      <Filter>core</Filter>
+    </None>
+    <None Include="core\Cargo.toml">
+      <Filter>core</Filter>
+    </None>
+    <None Include="core\src\debuggable.rs">
+      <Filter>core\src</Filter>
+    </None>
+    <None Include="core\src\lib.rs">
+      <Filter>core\src</Filter>
+    </None>
+    <None Include="core\src\tickable.rs">
+      <Filter>core\src</Filter>
+    </None>
+    <None Include="core\src\types.rs">
+      <Filter>core\src</Filter>
+    </None>
+    <None Include="core\src\bus\mod.rs">
+      <Filter>core\src\bus</Filter>
+    </None>
+    <None Include="core\src\bus\testbus.rs">
+      <Filter>core\src\bus</Filter>
+    </None>
+    <None Include="core\src\cpu_m68k\fpu\alu.rs">
+      <Filter>core\src\cpu_m68k\fpu</Filter>
+    </None>
+    <None Include="core\src\cpu_m68k\fpu\instruction.rs">
+      <Filter>core\src\cpu_m68k\fpu</Filter>
+    </None>
+    <None Include="core\src\cpu_m68k\fpu\mod.rs">
+      <Filter>core\src\cpu_m68k\fpu</Filter>
+    </None>
+    <None Include="core\src\cpu_m68k\fpu\ops_branch.rs">
+      <Filter>core\src\cpu_m68k\fpu</Filter>
+    </None>
+    <None Include="core\src\cpu_m68k\fpu\ops_generic.rs">
+      <Filter>core\src\cpu_m68k\fpu</Filter>
+    </None>
+    <None Include="core\src\cpu_m68k\fpu\regs.rs">
+      <Filter>core\src\cpu_m68k\fpu</Filter>
+    </None>
+    <None Include="core\src\cpu_m68k\fpu\storage.rs">
+      <Filter>core\src\cpu_m68k\fpu</Filter>
+    </None>
+    <None Include="core\src\cpu_m68k\alu.rs">
+      <Filter>core\src\cpu_m68k</Filter>
+    </None>
+    <None Include="core\src\cpu_m68k\cpu.rs">
+      <Filter>core\src\cpu_m68k</Filter>
+    </None>
+    <None Include="core\src\cpu_m68k\disassembler.rs">
+      <Filter>core\src\cpu_m68k</Filter>
+    </None>
+    <None Include="core\src\cpu_m68k\ea.rs">
+      <Filter>core\src\cpu_m68k</Filter>
+    </None>
+    <None Include="core\src\cpu_m68k\instruction.rs">
+      <Filter>core\src\cpu_m68k</Filter>
+    </None>
+    <None Include="core\src\cpu_m68k\mod.rs">
+      <Filter>core\src\cpu_m68k</Filter>
+    </None>
+    <None Include="core\src\cpu_m68k\regs.rs">
+      <Filter>core\src\cpu_m68k</Filter>
+    </None>
+    <None Include="core\src\emulator\comm.rs">
+      <Filter>core\src\emulator</Filter>
+    </None>
+    <None Include="core\src\emulator\mod.rs">
+      <Filter>core\src\emulator</Filter>
+    </None>
+    <None Include="core\src\keymap\aekm0115.rs">
+      <Filter>core\src\keymap</Filter>
+    </None>
+    <None Include="core\src\keymap\akm0110.rs">
+      <Filter>core\src\keymap</Filter>
+    </None>
+    <None Include="core\src\keymap\mod.rs">
+      <Filter>core\src\keymap</Filter>
+    </None>
+    <None Include="core\src\mac\asc.rs">
+      <Filter>core\src\mac</Filter>
+    </None>
+    <None Include="core\src\mac\mod.rs">
+      <Filter>core\src\mac</Filter>
+    </None>
+    <None Include="core\src\mac\pluskbd.rs">
+      <Filter>core\src\mac</Filter>
+    </None>
+    <None Include="core\src\mac\rtc.rs">
+      <Filter>core\src\mac</Filter>
+    </None>
+    <None Include="core\src\mac\scc.rs">
+      <Filter>core\src\mac</Filter>
+    </None>
+    <None Include="core\src\mac\scsi.rs">
+      <Filter>core\src\mac</Filter>
+    </None>
+    <None Include="core\src\mac\via.rs">
+      <Filter>core\src\mac</Filter>
+    </None>
+    <None Include="core\src\mac\adb\keyboard.rs">
+      <Filter>core\src\mac\adb</Filter>
+    </None>
+    <None Include="core\src\mac\adb\mod.rs">
+      <Filter>core\src\mac\adb</Filter>
+    </None>
+    <None Include="core\src\mac\adb\mouse.rs">
+      <Filter>core\src\mac\adb</Filter>
+    </None>
+    <None Include="core\src\mac\adb\transceiver.rs">
+      <Filter>core\src\mac\adb</Filter>
+    </None>
+    <None Include="core\src\mac\compact\audio.rs">
+      <Filter>core\src\mac\compact</Filter>
+    </None>
+    <None Include="core\src\mac\compact\bus.rs">
+      <Filter>core\src\mac\compact</Filter>
+    </None>
+    <None Include="core\src\mac\compact\mod.rs">
+      <Filter>core\src\mac\compact</Filter>
+    </None>
+    <None Include="core\src\mac\compact\video.rs">
+      <Filter>core\src\mac\compact</Filter>
+    </None>
+    <None Include="core\src\mac\macii\bus.rs">
+      <Filter>core\src\mac\macii</Filter>
+    </None>
+    <None Include="core\src\mac\macii\mod.rs">
+      <Filter>core\src\mac\macii</Filter>
+    </None>
+    <None Include="core\src\mac\macii\via2.rs">
+      <Filter>core\src\mac\macii</Filter>
+    </None>
+    <None Include="core\src\mac\swim\drive.rs">
+      <Filter>core\src\mac\swim</Filter>
+    </None>
+    <None Include="core\src\mac\swim\ism.rs">
+      <Filter>core\src\mac\swim</Filter>
+    </None>
+    <None Include="core\src\mac\swim\iwm.rs">
+      <Filter>core\src\mac\swim</Filter>
+    </None>
+    <None Include="core\src\mac\swim\mod.rs">
+      <Filter>core\src\mac\swim</Filter>
+    </None>
+    <None Include="core\src\mac\nubus\mdc12.rs">
+      <Filter>core\src\mac\nubus</Filter>
+    </None>
+    <None Include="core\src\mac\nubus\mod.rs">
+      <Filter>core\src\mac\nubus</Filter>
+    </None>
+    <None Include="core\src\util\lossyinto.rs">
+      <Filter>core\src\util</Filter>
+    </None>
+    <None Include="core\src\util\mod.rs">
+      <Filter>core\src\util</Filter>
+    </None>
+    <None Include="core\src\util\range.rs">
+      <Filter>core\src\util</Filter>
+    </None>
+    <None Include="core\src\test\mod.rs">
+      <Filter>core\src\test</Filter>
+    </None>
+    <None Include="core\src\test\singlestep_m68k.rs">
+      <Filter>core\src\test</Filter>
+    </None>
+    <None Include="core\src\renderer\channel.rs">
+      <Filter>core\src\renderer</Filter>
+    </None>
+    <None Include="core\src\renderer\mod.rs">
+      <Filter>core\src\renderer</Filter>
+    </None>
+    <None Include="docs\.gitignore">
+      <Filter>docs</Filter>
+    </None>
+    <None Include="docs\book.toml">
+      <Filter>docs</Filter>
+    </None>
+    <None Include="docs\BUILDING.md">
+      <Filter>docs</Filter>
+    </None>
+    <None Include="docs\README.md">
+      <Filter>docs</Filter>
+    </None>
+    <None Include="docs\TUI.md">
+      <Filter>docs</Filter>
+    </None>
+    <None Include="docs\src\README.md">
+      <Filter>docs\src</Filter>
+    </None>
+    <None Include="docs\src\SUMMARY.md">
+      <Filter>docs\src</Filter>
+    </None>
+    <None Include="docs\src\getting_started\binaries.md">
+      <Filter>docs\src\getting_started</Filter>
+    </None>
+    <None Include="docs\src\getting_started\building.md">
+      <Filter>docs\src\getting_started</Filter>
+    </None>
+    <None Include="docs\src\manual\starting.md">
+      <Filter>docs\src\manual</Filter>
+    </None>
+    <None Include="docs\src\manual\workspaces.md">
+      <Filter>docs\src\manual</Filter>
+    </None>
+    <None Include="docs\src\manual\debugging\breakpoints.md">
+      <Filter>docs\src\manual\debugging</Filter>
+    </None>
+    <None Include="docs\src\manual\debugging\disassembly.md">
+      <Filter>docs\src\manual\debugging</Filter>
+    </None>
+    <None Include="docs\src\manual\debugging\instruction_history.md">
+      <Filter>docs\src\manual\debugging</Filter>
+    </None>
+    <None Include="docs\src\manual\debugging\memory.md">
+      <Filter>docs\src\manual\debugging</Filter>
+    </None>
+    <None Include="docs\src\manual\debugging\peripherals.md">
+      <Filter>docs\src\manual\debugging</Filter>
+    </None>
+    <None Include="docs\src\manual\debugging\README.md">
+      <Filter>docs\src\manual\debugging</Filter>
+    </None>
+    <None Include="docs\src\manual\debugging\registers.md">
+      <Filter>docs\src\manual\debugging</Filter>
+    </None>
+    <None Include="docs\src\manual\debugging\trap_history.md">
+      <Filter>docs\src\manual\debugging</Filter>
+    </None>
+    <None Include="docs\src\manual\debugging\watchpoints.md">
+      <Filter>docs\src\manual\debugging</Filter>
+    </None>
+    <None Include="docs\src\manual\media\floppies.md">
+      <Filter>docs\src\manual\media</Filter>
+    </None>
+    <None Include="docs\src\manual\media\harddrives.md">
+      <Filter>docs\src\manual\media</Filter>
+    </None>
+    <None Include="docs\src\manual\media\README.md">
+      <Filter>docs\src\manual\media</Filter>
+    </None>
+    <None Include="docs\theme\head.hbs">
+      <Filter>docs\theme</Filter>
+    </None>
+    <None Include="floppy\build.rs">
+      <Filter>floppy</Filter>
+    </None>
+    <None Include="floppy\Cargo.toml">
+      <Filter>floppy</Filter>
+    </None>
+    <None Include="floppy\src\flux.rs">
+      <Filter>floppy\src</Filter>
+    </None>
+    <None Include="floppy\src\lib.rs">
+      <Filter>floppy\src</Filter>
+    </None>
+    <None Include="floppy\src\macformat.rs">
+      <Filter>floppy\src</Filter>
+    </None>
+    <None Include="floppy\src\loaders\a2r2.rs">
+      <Filter>floppy\src\loaders</Filter>
+    </None>
+    <None Include="floppy\src\loaders\a2r3.rs">
+      <Filter>floppy\src\loaders</Filter>
+    </None>
+    <None Include="floppy\src\loaders\auto.rs">
+      <Filter>floppy\src\loaders</Filter>
+    </None>
+    <None Include="floppy\src\loaders\bitfile.rs">
+      <Filter>floppy\src\loaders</Filter>
+    </None>
+    <None Include="floppy\src\loaders\diskcopy42.rs">
+      <Filter>floppy\src\loaders</Filter>
+    </None>
+    <None Include="floppy\src\loaders\fluxfox.rs">
+      <Filter>floppy\src\loaders</Filter>
+    </None>
+    <None Include="floppy\src\loaders\mod.rs">
+      <Filter>floppy\src\loaders</Filter>
+    </None>
+    <None Include="floppy\src\loaders\moof.rs">
+      <Filter>floppy\src\loaders</Filter>
+    </None>
+    <None Include="floppy\src\loaders\pfi.rs">
+      <Filter>floppy\src\loaders</Filter>
+    </None>
+    <None Include="floppy\src\loaders\pri.rs">
+      <Filter>floppy\src\loaders</Filter>
+    </None>
+    <None Include="floppy\src\loaders\raw.rs">
+      <Filter>floppy\src\loaders</Filter>
+    </None>
+    <None Include="frontend_egui\build.rs">
+      <Filter>frontend_egui</Filter>
+    </None>
+    <None Include="frontend_egui\Cargo.toml">
+      <Filter>frontend_egui</Filter>
+    </None>
+    <None Include="frontend_egui\src\app.rs">
+      <Filter>frontend_egui\src</Filter>
+    </None>
+    <None Include="frontend_egui\src\audio.rs">
+      <Filter>frontend_egui\src</Filter>
+    </None>
+    <None Include="frontend_egui\src\consts.rs">
+      <Filter>frontend_egui\src</Filter>
+    </None>
+    <None Include="frontend_egui\src\emulator.rs">
+      <Filter>frontend_egui\src</Filter>
+    </None>
+    <None Include="frontend_egui\src\helpers.rs">
+      <Filter>frontend_egui\src</Filter>
+    </None>
+    <None Include="frontend_egui\src\keymap.rs">
+      <Filter>frontend_egui\src</Filter>
+    </None>
+    <None Include="frontend_egui\src\main.rs">
+      <Filter>frontend_egui\src</Filter>
+    </None>
+    <None Include="frontend_egui\src\uniform.rs">
+      <Filter>frontend_egui\src</Filter>
+    </None>
+    <None Include="frontend_egui\src\workspace.rs">
+      <Filter>frontend_egui\src</Filter>
+    </None>
+    <None Include="frontend_egui\src\dialogs\diskimage.rs">
+      <Filter>frontend_egui\src\dialogs</Filter>
+    </None>
+    <None Include="frontend_egui\src\dialogs\mod.rs">
+      <Filter>frontend_egui\src\dialogs</Filter>
+    </None>
+    <None Include="frontend_egui\src\dialogs\modelselect.rs">
+      <Filter>frontend_egui\src\dialogs</Filter>
+    </None>
+    <None Include="frontend_egui\src\widgets\breakpoints.rs">
+      <Filter>frontend_egui\src\widgets</Filter>
+    </None>
+    <None Include="frontend_egui\src\widgets\disassembly.rs">
+      <Filter>frontend_egui\src\widgets</Filter>
+    </None>
+    <None Include="frontend_egui\src\widgets\framebuffer.rs">
+      <Filter>frontend_egui\src\widgets</Filter>
+    </None>
+    <None Include="frontend_egui\src\widgets\instruction_history.rs">
+      <Filter>frontend_egui\src\widgets</Filter>
+    </None>
+    <None Include="frontend_egui\src\widgets\memory.rs">
+      <Filter>frontend_egui\src\widgets</Filter>
+    </None>
+    <None Include="frontend_egui\src\widgets\mod.rs">
+      <Filter>frontend_egui\src\widgets</Filter>
+    </None>
+    <None Include="frontend_egui\src\widgets\peripherals.rs">
+      <Filter>frontend_egui\src\widgets</Filter>
+    </None>
+    <None Include="frontend_egui\src\widgets\registers.rs">
+      <Filter>frontend_egui\src\widgets</Filter>
+    </None>
+    <None Include="frontend_egui\src\widgets\systrap_history.rs">
+      <Filter>frontend_egui\src\widgets</Filter>
+    </None>
+    <None Include="frontend_egui\src\widgets\terminal.rs">
+      <Filter>frontend_egui\src\widgets</Filter>
+    </None>
+    <None Include="frontend_egui\src\widgets\watchpoints.rs">
+      <Filter>frontend_egui\src\widgets</Filter>
+    </None>
+    <None Include="frontend_egui\src\util\mod.rs">
+      <Filter>frontend_egui\src\util</Filter>
+    </None>
+    <None Include="frontend_egui\src\util\relativepath.rs">
+      <Filter>frontend_egui\src\util</Filter>
+    </None>
+    <None Include="frontend_tui\Cargo.lock">
+      <Filter>frontend_tui</Filter>
+    </None>
+    <None Include="frontend_tui\Cargo.toml">
+      <Filter>frontend_tui</Filter>
+    </None>
+    <None Include="frontend_tui\src\keymap_sdl.rs">
+      <Filter>frontend_tui\src</Filter>
+    </None>
+    <None Include="frontend_tui\src\main.rs">
+      <Filter>frontend_tui\src</Filter>
+    </None>
+    <None Include="frontend_tui\src\renderer_sdl.rs">
+      <Filter>frontend_tui\src</Filter>
+    </None>
+    <None Include="frontend_tui\src\ui\browser.rs">
+      <Filter>frontend_tui\src\ui</Filter>
+    </None>
+    <None Include="frontend_tui\src\ui\debugger.rs">
+      <Filter>frontend_tui\src\ui</Filter>
+    </None>
+    <None Include="frontend_tui\src\ui\mod.rs">
+      <Filter>frontend_tui\src\ui</Filter>
+    </None>
+    <None Include="frontend_tui\src\ui\status.rs">
+      <Filter>frontend_tui\src\ui</Filter>
+    </None>
+    <None Include="testrunner\build.rs">
+      <Filter>testrunner</Filter>
+    </None>
+    <None Include="testrunner\Cargo.toml">
+      <Filter>testrunner</Filter>
+    </None>
+    <None Include="testrunner\run-tests.sh">
+      <Filter>testrunner</Filter>
+    </None>
+    <None Include="testrunner\src\lib.rs">
+      <Filter>testrunner\src</Filter>
+    </None>
+    <None Include="testrunner\src\bin\all\main.rs">
+      <Filter>testrunner\src\bin\all</Filter>
+    </None>
+    <None Include="testrunner\src\bin\single\main.rs">
+      <Filter>testrunner\src\bin\single</Filter>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="core">
+      <UniqueIdentifier>{fc284542-2e77-427c-8736-8e2314f58852}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="core\src">
+      <UniqueIdentifier>{c0b2d510-9252-4987-8008-653d2deb9cbc}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="docs">
+      <UniqueIdentifier>{48e81c64-05be-4fd5-85b9-17cc43138820}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="floppy">
+      <UniqueIdentifier>{292e4240-549b-4d04-8ff6-3a682b760d5f}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="frontend_egui">
+      <UniqueIdentifier>{bd92fd4e-ac0c-454c-8362-c66a7fcf26cf}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="frontend_tui">
+      <UniqueIdentifier>{a04fe1a4-c4b4-4446-9c5a-b4425d734ca7}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="testrunner">
+      <UniqueIdentifier>{c5113a57-a969-460b-a816-f43c11150e47}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="docs\images">
+      <UniqueIdentifier>{6e378e7a-7b65-4d14-a2f1-8f14430ac54c}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="docs\src">
+      <UniqueIdentifier>{1456a2cd-0942-4284-a090-b3da178122a3}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="docs\theme">
+      <UniqueIdentifier>{49ac7671-6543-43a8-a3f4-b5ed7803352c}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="docs\src\getting_started">
+      <UniqueIdentifier>{da79a69e-4952-4570-9f72-a260a44bc6fb}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="docs\src\images">
+      <UniqueIdentifier>{1db92e83-1a07-4a98-9f18-07a37d8fcaf7}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="docs\src\manual">
+      <UniqueIdentifier>{d7e2dc34-fbbf-4e66-bbcc-e2c870c0c51e}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="docs\src\manual\debugging">
+      <UniqueIdentifier>{7f8c2396-bf90-45e7-a1c3-1850c4c80378}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="docs\src\manual\media">
+      <UniqueIdentifier>{96a1cf8f-1586-4d2c-9cee-54d61036b7f8}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="floppy\src">
+      <UniqueIdentifier>{ed5eba4d-cbaf-49a3-8efc-f4ede6c11123}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="floppy\src\loaders">
+      <UniqueIdentifier>{77c6c049-e63f-44f6-ab75-d7557242c211}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="frontend_egui\src">
+      <UniqueIdentifier>{7fc59ccc-056e-4f08-908f-a55f2ad7a756}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="frontend_egui\src\dialogs">
+      <UniqueIdentifier>{bd429ed4-b427-47a5-8a29-ddb0c97060e2}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="frontend_egui\src\util">
+      <UniqueIdentifier>{956b4d1b-74e4-483d-9164-33decf8ea4fd}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="frontend_egui\src\widgets">
+      <UniqueIdentifier>{c95d0d24-bda9-43f8-8589-b2c87034e1d0}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="frontend_tui\src">
+      <UniqueIdentifier>{2e69ff39-7d3c-4960-bffc-386c7ac05f2a}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="frontend_tui\src\ui">
+      <UniqueIdentifier>{884ccd65-f5dc-4797-939f-7b9a6fbf8a4d}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="testrunner\src">
+      <UniqueIdentifier>{c8079c99-d672-4245-a198-189c18ff43a0}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="testrunner\src\bin">
+      <UniqueIdentifier>{4d914906-c23a-439f-88b3-3ca9d11fab44}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="testrunner\src\bin\all">
+      <UniqueIdentifier>{9b5a8ad7-9d05-4e2c-8a92-4c75c6080d18}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="testrunner\src\bin\single">
+      <UniqueIdentifier>{47a6d06c-8732-43ec-b372-5c89b9d978b8}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="testdata">
+      <UniqueIdentifier>{4186542f-f113-4ae2-bec5-e1167c868130}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="core\src\bus">
+      <UniqueIdentifier>{fa3ef23e-1f8c-4bcc-9d24-f829ee416375}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="core\src\cpu_m68k">
+      <UniqueIdentifier>{1c254006-69f1-42b0-9065-1ffa09bb3fbb}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="core\src\emulator">
+      <UniqueIdentifier>{e72e44e8-34f7-403f-87c3-cda6a5a191f0}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="core\src\keymap">
+      <UniqueIdentifier>{88dd72e0-a47b-44af-b194-259fb2d83408}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="core\src\mac">
+      <UniqueIdentifier>{afca86db-d868-43ed-a709-a9877c77b583}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="core\src\renderer">
+      <UniqueIdentifier>{47a8475b-7af8-4fe5-8fdb-1360d4dc9a21}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="core\src\test">
+      <UniqueIdentifier>{a2c808c1-cb8f-401b-9528-bd90d91ff258}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="core\src\util">
+      <UniqueIdentifier>{c5d26dfe-c17e-42d5-b827-eeb03304f616}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="core\src\cpu_m68k\fpu">
+      <UniqueIdentifier>{0c741fa3-6540-49f9-8f75-a639a9711a23}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="core\src\mac\adb">
+      <UniqueIdentifier>{1f6e40bb-c317-4608-837d-a1c8a32acc5f}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="core\src\mac\compact">
+      <UniqueIdentifier>{6ebbd0a0-195b-48bc-b31c-41bacca22c8c}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="core\src\mac\macii">
+      <UniqueIdentifier>{1ae829a4-7040-47bc-b722-29b6b1790260}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="core\src\mac\nubus">
+      <UniqueIdentifier>{26a866cb-4915-47dc-84c5-e53f721e3dce}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="core\src\mac\swim">
+      <UniqueIdentifier>{b46a8aa2-ae89-4ac6-87b0-9cfe9d289eff}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="testdata\m68000">
+      <UniqueIdentifier>{26ee49df-1df9-4b86-9375-052a906d1206}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="docs\images\debugger.png">
+      <Filter>docs\images</Filter>
+    </Image>
+    <Image Include="docs\images\egui.png">
+      <Filter>docs\images</Filter>
+    </Image>
+    <Image Include="docs\images\egui_macii.png">
+      <Filter>docs\images</Filter>
+    </Image>
+    <Image Include="docs\images\lemmings.png">
+      <Filter>docs\images</Filter>
+    </Image>
+    <Image Include="docs\images\snow_icon.png">
+      <Filter>docs\images</Filter>
+    </Image>
+    <Image Include="docs\images\system7.png">
+      <Filter>docs\images</Filter>
+    </Image>
+    <Image Include="docs\src\images\addr_context.png">
+      <Filter>docs\src\images</Filter>
+    </Image>
+    <Image Include="docs\src\images\breakpoints.png">
+      <Filter>docs\src\images</Filter>
+    </Image>
+    <Image Include="docs\src\images\create_disk_dialog.png">
+      <Filter>docs\src\images</Filter>
+    </Image>
+    <Image Include="docs\src\images\disassembly.png">
+      <Filter>docs\src\images</Filter>
+    </Image>
+    <Image Include="docs\src\images\instruction_history.png">
+      <Filter>docs\src\images</Filter>
+    </Image>
+    <Image Include="docs\src\images\load_rom.png">
+      <Filter>docs\src\images</Filter>
+    </Image>
+    <Image Include="docs\src\images\memory_viewer.png">
+      <Filter>docs\src\images</Filter>
+    </Image>
+    <Image Include="docs\src\images\memory_viewer_search.png">
+      <Filter>docs\src\images</Filter>
+    </Image>
+    <Image Include="docs\src\images\peripherals.png">
+      <Filter>docs\src\images</Filter>
+    </Image>
+    <Image Include="docs\src\images\registers.png">
+      <Filter>docs\src\images</Filter>
+    </Image>
+    <Image Include="docs\src\images\snowmac.png">
+      <Filter>docs\src\images</Filter>
+    </Image>
+    <Image Include="docs\src\images\trap_history.png">
+      <Filter>docs\src\images</Filter>
+    </Image>
+    <Image Include="docs\src\images\watch.png">
+      <Filter>docs\src\images</Filter>
+    </Image>
+    <Image Include="docs\src\images\watch_search.png">
+      <Filter>docs\src\images</Filter>
+    </Image>
+  </ItemGroup>
+</Project>

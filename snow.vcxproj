@@ -1,0 +1,230 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>17.0</VCProjectVersion>
+    <ProjectGuid>{D5A9C14C-8983-4B11-8E8C-CD2DCA5B6F09}</ProjectGuid>
+    <Keyword>Win32Proj</Keyword>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>Makefile</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>Makefile</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="Shared">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <NMakeBuildCommandLine>C:\msys64\usr\bin\bash.exe -c "cargo build --lib" | copy $(ProjectDir)target\$(Configuration)\snow.* $(SolutionDir)MacSE.UI\bin\$(Configuration)\net9.0-windows7.0\</NMakeBuildCommandLine>
+    <NMakeOutput>$(ProjectDir)target\$(Configuration)\snow.dll</NMakeOutput>
+    <NMakeCleanCommandLine>C:\msys64\usr\bin\bash.exe -c "cargo clean"</NMakeCleanCommandLine>
+    <NMakeReBuildCommandLine>C:\msys64\usr\bin\bash.exe -c "cargo clean" | C:\msys64\usr\bin\bash.exe -c "cargo build --lib" | copy $(ProjectDir)target\$(Configuration)\snow.* $(SolutionDir)MacSE.UI\bin\$(Configuration)\net9.0-windows7.0\</NMakeReBuildCommandLine>
+    <NMakePreprocessorDefinitions>_DEBUG;$(NMakePreprocessorDefinitions)</NMakePreprocessorDefinitions>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <NMakeBuildCommandLine>C:\msys64\usr\bin\bash.exe -c "cargo build --release --lib" | copy $(ProjectDir)target\$(Configuration)\snow.* $(SolutionDir)MacSE.UI\bin\$(Configuration)\net9.0-windows7.0\</NMakeBuildCommandLine>
+    <NMakeOutput>$(ProjectDir)target\$(Configuration)\snow.dll</NMakeOutput>
+    <NMakeCleanCommandLine>cargo clean</NMakeCleanCommandLine>
+    <NMakeReBuildCommandLine>C:\msys64\usr\bin\bash.exe -c "cargo clean" | C:\msys64\usr\bin\bash.exe -c "cargo build --release --lib" | copy $(ProjectDir)target\$(Configuration)\snow.* $(SolutionDir)MacSE.UI\bin\$(Configuration)\net9.0-windows7.0\</NMakeReBuildCommandLine>
+    <NMakePreprocessorDefinitions>NDEBUG;$(NMakePreprocessorDefinitions)</NMakePreprocessorDefinitions>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <None Include=".gitignore" />
+    <None Include=".gitmodules" />
+    <None Include="Cargo.toml" />
+    <None Include="core\Cargo.lock" />
+    <None Include="core\Cargo.toml" />
+    <None Include="core\src\bus\mod.rs" />
+    <None Include="core\src\bus\testbus.rs" />
+    <None Include="core\src\cpu_m68k\alu.rs" />
+    <None Include="core\src\cpu_m68k\cpu.rs" />
+    <None Include="core\src\cpu_m68k\disassembler.rs" />
+    <None Include="core\src\cpu_m68k\ea.rs" />
+    <None Include="core\src\cpu_m68k\fpu\alu.rs" />
+    <None Include="core\src\cpu_m68k\fpu\instruction.rs" />
+    <None Include="core\src\cpu_m68k\fpu\mod.rs" />
+    <None Include="core\src\cpu_m68k\fpu\ops_branch.rs" />
+    <None Include="core\src\cpu_m68k\fpu\ops_generic.rs" />
+    <None Include="core\src\cpu_m68k\fpu\regs.rs" />
+    <None Include="core\src\cpu_m68k\fpu\storage.rs" />
+    <None Include="core\src\cpu_m68k\instruction.rs" />
+    <None Include="core\src\cpu_m68k\mod.rs" />
+    <None Include="core\src\cpu_m68k\regs.rs" />
+    <None Include="core\src\debuggable.rs" />
+    <None Include="core\src\emulator\comm.rs" />
+    <None Include="core\src\emulator\mod.rs" />
+    <None Include="core\src\keymap\aekm0115.rs" />
+    <None Include="core\src\keymap\akm0110.rs" />
+    <None Include="core\src\keymap\mod.rs" />
+    <None Include="core\src\lib.rs" />
+    <None Include="core\src\mac\adb\keyboard.rs" />
+    <None Include="core\src\mac\adb\mod.rs" />
+    <None Include="core\src\mac\adb\mouse.rs" />
+    <None Include="core\src\mac\adb\transceiver.rs" />
+    <None Include="core\src\mac\asc.rs" />
+    <None Include="core\src\mac\compact\audio.rs" />
+    <None Include="core\src\mac\compact\bus.rs" />
+    <None Include="core\src\mac\compact\mod.rs" />
+    <None Include="core\src\mac\compact\video.rs" />
+    <None Include="core\src\mac\macii\bus.rs" />
+    <None Include="core\src\mac\macii\mod.rs" />
+    <None Include="core\src\mac\macii\via2.rs" />
+    <None Include="core\src\mac\mod.rs" />
+    <None Include="core\src\mac\nubus\mdc12.rs" />
+    <None Include="core\src\mac\nubus\mod.rs" />
+    <None Include="core\src\mac\pluskbd.rs" />
+    <None Include="core\src\mac\rtc.rs" />
+    <None Include="core\src\mac\scc.rs" />
+    <None Include="core\src\mac\scsi.rs" />
+    <None Include="core\src\mac\swim\drive.rs" />
+    <None Include="core\src\mac\swim\ism.rs" />
+    <None Include="core\src\mac\swim\iwm.rs" />
+    <None Include="core\src\mac\swim\mod.rs" />
+    <None Include="core\src\mac\via.rs" />
+    <None Include="core\src\renderer\channel.rs" />
+    <None Include="core\src\renderer\mod.rs" />
+    <None Include="core\src\test\mod.rs" />
+    <None Include="core\src\test\singlestep_m68k.rs" />
+    <None Include="core\src\tickable.rs" />
+    <None Include="core\src\types.rs" />
+    <None Include="core\src\util\lossyinto.rs" />
+    <None Include="core\src\util\mod.rs" />
+    <None Include="core\src\util\range.rs" />
+    <None Include="docs\.gitignore" />
+    <None Include="docs\book.toml" />
+    <None Include="docs\BUILDING.md" />
+    <None Include="docs\README.md" />
+    <None Include="docs\src\getting_started\binaries.md" />
+    <None Include="docs\src\getting_started\building.md" />
+    <None Include="docs\src\manual\debugging\breakpoints.md" />
+    <None Include="docs\src\manual\debugging\disassembly.md" />
+    <None Include="docs\src\manual\debugging\instruction_history.md" />
+    <None Include="docs\src\manual\debugging\memory.md" />
+    <None Include="docs\src\manual\debugging\peripherals.md" />
+    <None Include="docs\src\manual\debugging\README.md" />
+    <None Include="docs\src\manual\debugging\registers.md" />
+    <None Include="docs\src\manual\debugging\trap_history.md" />
+    <None Include="docs\src\manual\debugging\watchpoints.md" />
+    <None Include="docs\src\manual\media\floppies.md" />
+    <None Include="docs\src\manual\media\harddrives.md" />
+    <None Include="docs\src\manual\media\README.md" />
+    <None Include="docs\src\manual\starting.md" />
+    <None Include="docs\src\manual\workspaces.md" />
+    <None Include="docs\src\README.md" />
+    <None Include="docs\src\SUMMARY.md" />
+    <None Include="docs\theme\head.hbs" />
+    <None Include="docs\TUI.md" />
+    <None Include="floppy\build.rs" />
+    <None Include="floppy\Cargo.toml" />
+    <None Include="floppy\src\flux.rs" />
+    <None Include="floppy\src\lib.rs" />
+    <None Include="floppy\src\loaders\a2r2.rs" />
+    <None Include="floppy\src\loaders\a2r3.rs" />
+    <None Include="floppy\src\loaders\auto.rs" />
+    <None Include="floppy\src\loaders\bitfile.rs" />
+    <None Include="floppy\src\loaders\diskcopy42.rs" />
+    <None Include="floppy\src\loaders\fluxfox.rs" />
+    <None Include="floppy\src\loaders\mod.rs" />
+    <None Include="floppy\src\loaders\moof.rs" />
+    <None Include="floppy\src\loaders\pfi.rs" />
+    <None Include="floppy\src\loaders\pri.rs" />
+    <None Include="floppy\src\loaders\raw.rs" />
+    <None Include="floppy\src\macformat.rs" />
+    <None Include="frontend_egui\build.rs" />
+    <None Include="frontend_egui\Cargo.toml" />
+    <None Include="frontend_egui\src\app.rs" />
+    <None Include="frontend_egui\src\audio.rs" />
+    <None Include="frontend_egui\src\consts.rs" />
+    <None Include="frontend_egui\src\dialogs\diskimage.rs" />
+    <None Include="frontend_egui\src\dialogs\mod.rs" />
+    <None Include="frontend_egui\src\dialogs\modelselect.rs" />
+    <None Include="frontend_egui\src\emulator.rs" />
+    <None Include="frontend_egui\src\helpers.rs" />
+    <None Include="frontend_egui\src\keymap.rs" />
+    <None Include="frontend_egui\src\main.rs" />
+    <None Include="frontend_egui\src\uniform.rs" />
+    <None Include="frontend_egui\src\util\mod.rs" />
+    <None Include="frontend_egui\src\util\relativepath.rs" />
+    <None Include="frontend_egui\src\widgets\breakpoints.rs" />
+    <None Include="frontend_egui\src\widgets\disassembly.rs" />
+    <None Include="frontend_egui\src\widgets\framebuffer.rs" />
+    <None Include="frontend_egui\src\widgets\instruction_history.rs" />
+    <None Include="frontend_egui\src\widgets\memory.rs" />
+    <None Include="frontend_egui\src\widgets\mod.rs" />
+    <None Include="frontend_egui\src\widgets\peripherals.rs" />
+    <None Include="frontend_egui\src\widgets\registers.rs" />
+    <None Include="frontend_egui\src\widgets\systrap_history.rs" />
+    <None Include="frontend_egui\src\widgets\terminal.rs" />
+    <None Include="frontend_egui\src\widgets\watchpoints.rs" />
+    <None Include="frontend_egui\src\workspace.rs" />
+    <None Include="frontend_tui\Cargo.lock" />
+    <None Include="frontend_tui\Cargo.toml" />
+    <None Include="frontend_tui\src\keymap_sdl.rs" />
+    <None Include="frontend_tui\src\main.rs" />
+    <None Include="frontend_tui\src\renderer_sdl.rs" />
+    <None Include="frontend_tui\src\ui\browser.rs" />
+    <None Include="frontend_tui\src\ui\debugger.rs" />
+    <None Include="frontend_tui\src\ui\mod.rs" />
+    <None Include="frontend_tui\src\ui\status.rs" />
+    <None Include="LICENSE" />
+    <None Include="README.md" />
+    <None Include="rust-toolchain.toml" />
+    <None Include="testrunner\build.rs" />
+    <None Include="testrunner\Cargo.toml" />
+    <None Include="testrunner\run-tests.sh" />
+    <None Include="testrunner\src\bin\all\main.rs" />
+    <None Include="testrunner\src\bin\single\main.rs" />
+    <None Include="testrunner\src\lib.rs" />
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="docs\images\debugger.png" />
+    <Image Include="docs\images\egui.png" />
+    <Image Include="docs\images\egui_macii.png" />
+    <Image Include="docs\images\lemmings.png" />
+    <Image Include="docs\images\snow_icon.png" />
+    <Image Include="docs\images\system7.png" />
+    <Image Include="docs\src\images\addr_context.png" />
+    <Image Include="docs\src\images\breakpoints.png" />
+    <Image Include="docs\src\images\create_disk_dialog.png" />
+    <Image Include="docs\src\images\disassembly.png" />
+    <Image Include="docs\src\images\instruction_history.png" />
+    <Image Include="docs\src\images\load_rom.png" />
+    <Image Include="docs\src\images\memory_viewer.png" />
+    <Image Include="docs\src\images\memory_viewer_search.png" />
+    <Image Include="docs\src\images\peripherals.png" />
+    <Image Include="docs\src\images\registers.png" />
+    <Image Include="docs\src\images\snowmac.png" />
+    <Image Include="docs\src\images\trap_history.png" />
+    <Image Include="docs\src\images\watch.png" />
+    <Image Include="docs\src\images\watch_search.png" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>
