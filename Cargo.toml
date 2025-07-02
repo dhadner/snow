@@ -1,10 +1,15 @@
 [workspace]
-default-members = ["frontend_egui"]
+#default-members = ["frontend_egui"]
 resolver = '2'
 members = [
-    "core", "floppy", "frontend_egui",
-    "frontend_tui"
-, "testrunner"]
+    "core", "floppy"
+    #, "frontend_egui",
+    #"frontend_tui"
+#, "testrunner"
+]
+
+[workspace.features]
+default = ["snow_core/mmap"]
 
 [workspace.lints.clippy]
 nursery = { level = "deny", priority = -1 }
