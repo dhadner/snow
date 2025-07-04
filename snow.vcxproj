@@ -52,6 +52,16 @@
     <NMakeReBuildCommandLine>C:\msys64\usr\bin\bash.exe -c "cargo clean" | C:\msys64\usr\bin\bash.exe -c "cargo build --release --lib" | copy $(ProjectDir)target\$(Configuration)\snow.* $(SolutionDir)MacSE.UI\bin\$(Configuration)\net9.0-windows7.0\</NMakeReBuildCommandLine>
     <NMakePreprocessorDefinitions>NDEBUG;$(NMakePreprocessorDefinitions)</NMakePreprocessorDefinitions>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <NMakeBuildCommandLine>cargo build --release</NMakeBuildCommandLine>
+    <NMakeReBuildCommandLine>cargo clean | cargo build --release</NMakeReBuildCommandLine>
+    <NMakeCleanCommandLine>cargo clean</NMakeCleanCommandLine>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <NMakeBuildCommandLine>cargo build</NMakeBuildCommandLine>
+    <NMakeReBuildCommandLine>cargo clean | cargo build</NMakeReBuildCommandLine>
+    <NMakeCleanCommandLine>cargo clean</NMakeCleanCommandLine>
+  </PropertyGroup>
   <ItemDefinitionGroup>
   </ItemDefinitionGroup>
   <ItemGroup>
