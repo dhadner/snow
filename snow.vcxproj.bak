@@ -38,19 +38,29 @@
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x65'">
     <NMakeBuildCommandLine>C:\msys64\usr\bin\bash.exe -c "cargo build --lib" | copy $(ProjectDir)target\$(Configuration)\snow.* $(SolutionDir)MacSE.UI\bin\$(Configuration)\net9.0-windows7.0\</NMakeBuildCommandLine>
     <NMakeOutput>$(ProjectDir)target\$(Configuration)\snow.dll</NMakeOutput>
     <NMakeCleanCommandLine>C:\msys64\usr\bin\bash.exe -c "cargo clean"</NMakeCleanCommandLine>
     <NMakeReBuildCommandLine>C:\msys64\usr\bin\bash.exe -c "cargo clean" | C:\msys64\usr\bin\bash.exe -c "cargo build --lib" | copy $(ProjectDir)target\$(Configuration)\snow.* $(SolutionDir)MacSE.UI\bin\$(Configuration)\net9.0-windows7.0\</NMakeReBuildCommandLine>
     <NMakePreprocessorDefinitions>_DEBUG;$(NMakePreprocessorDefinitions)</NMakePreprocessorDefinitions>
   </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x65'">
     <NMakeBuildCommandLine>C:\msys64\usr\bin\bash.exe -c "cargo build --release --lib" | copy $(ProjectDir)target\$(Configuration)\snow.* $(SolutionDir)MacSE.UI\bin\$(Configuration)\net9.0-windows7.0\</NMakeBuildCommandLine>
     <NMakeOutput>$(ProjectDir)target\$(Configuration)\snow.dll</NMakeOutput>
     <NMakeCleanCommandLine>C:\msys64\usr\bin\bash.exe -c "cargo clean"</NMakeCleanCommandLine>
     <NMakeReBuildCommandLine>C:\msys64\usr\bin\bash.exe -c "cargo clean" | C:\msys64\usr\bin\bash.exe -c "cargo build --release --lib" | copy $(ProjectDir)target\$(Configuration)\snow.* $(SolutionDir)MacSE.UI\bin\$(Configuration)\net9.0-windows7.0\</NMakeReBuildCommandLine>
     <NMakePreprocessorDefinitions>NDEBUG;$(NMakePreprocessorDefinitions)</NMakePreprocessorDefinitions>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <NMakeBuildCommandLine>cargo build --release</NMakeBuildCommandLine>
+    <NMakeReBuildCommandLine>cargo clean | cargo build --release</NMakeReBuildCommandLine>
+    <NMakeCleanCommandLine>cargo clean</NMakeCleanCommandLine>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <NMakeBuildCommandLine>cargo build</NMakeBuildCommandLine>
+    <NMakeReBuildCommandLine>cargo clean | cargo build</NMakeReBuildCommandLine>
+    <NMakeCleanCommandLine>cargo clean</NMakeCleanCommandLine>
   </PropertyGroup>
   <ItemDefinitionGroup>
   </ItemDefinitionGroup>
@@ -132,6 +142,42 @@
     <None Include="floppy\src\loaders\pri.rs" />
     <None Include="floppy\src\loaders\raw.rs" />
     <None Include="floppy\src\macformat.rs" />
+    <None Include="frontend_egui\build.rs" />
+    <None Include="frontend_egui\Cargo.toml" />
+    <None Include="frontend_egui\src\app.rs" />
+    <None Include="frontend_egui\src\audio.rs" />
+    <None Include="frontend_egui\src\consts.rs" />
+    <None Include="frontend_egui\src\dialogs\diskimage.rs" />
+    <None Include="frontend_egui\src\dialogs\mod.rs" />
+    <None Include="frontend_egui\src\dialogs\modelselect.rs" />
+    <None Include="frontend_egui\src\emulator.rs" />
+    <None Include="frontend_egui\src\helpers.rs" />
+    <None Include="frontend_egui\src\keymap.rs" />
+    <None Include="frontend_egui\src\main.rs" />
+    <None Include="frontend_egui\src\uniform.rs" />
+    <None Include="frontend_egui\src\util\mod.rs" />
+    <None Include="frontend_egui\src\util\relativepath.rs" />
+    <None Include="frontend_egui\src\widgets\breakpoints.rs" />
+    <None Include="frontend_egui\src\widgets\disassembly.rs" />
+    <None Include="frontend_egui\src\widgets\framebuffer.rs" />
+    <None Include="frontend_egui\src\widgets\instruction_history.rs" />
+    <None Include="frontend_egui\src\widgets\memory.rs" />
+    <None Include="frontend_egui\src\widgets\mod.rs" />
+    <None Include="frontend_egui\src\widgets\peripherals.rs" />
+    <None Include="frontend_egui\src\widgets\registers.rs" />
+    <None Include="frontend_egui\src\widgets\systrap_history.rs" />
+    <None Include="frontend_egui\src\widgets\terminal.rs" />
+    <None Include="frontend_egui\src\widgets\watchpoints.rs" />
+    <None Include="frontend_egui\src\workspace.rs" />
+    <None Include="frontend_tui\Cargo.lock" />
+    <None Include="frontend_tui\Cargo.toml" />
+    <None Include="frontend_tui\src\keymap_sdl.rs" />
+    <None Include="frontend_tui\src\main.rs" />
+    <None Include="frontend_tui\src\renderer_sdl.rs" />
+    <None Include="frontend_tui\src\ui\browser.rs" />
+    <None Include="frontend_tui\src\ui\debugger.rs" />
+    <None Include="frontend_tui\src\ui\mod.rs" />
+    <None Include="frontend_tui\src\ui\status.rs" />
     <None Include="LICENSE" />
     <None Include="README.md" />
     <None Include="rust-toolchain.toml" />

@@ -229,6 +229,114 @@
     <None Include="floppy\src\loaders\raw.rs">
       <Filter>floppy\src\loaders</Filter>
     </None>
+    <None Include="frontend_egui\build.rs">
+      <Filter>frontend_egui</Filter>
+    </None>
+    <None Include="frontend_egui\Cargo.toml">
+      <Filter>frontend_egui</Filter>
+    </None>
+    <None Include="frontend_egui\src\app.rs">
+      <Filter>frontend_egui\src</Filter>
+    </None>
+    <None Include="frontend_egui\src\audio.rs">
+      <Filter>frontend_egui\src</Filter>
+    </None>
+    <None Include="frontend_egui\src\consts.rs">
+      <Filter>frontend_egui\src</Filter>
+    </None>
+    <None Include="frontend_egui\src\emulator.rs">
+      <Filter>frontend_egui\src</Filter>
+    </None>
+    <None Include="frontend_egui\src\helpers.rs">
+      <Filter>frontend_egui\src</Filter>
+    </None>
+    <None Include="frontend_egui\src\keymap.rs">
+      <Filter>frontend_egui\src</Filter>
+    </None>
+    <None Include="frontend_egui\src\main.rs">
+      <Filter>frontend_egui\src</Filter>
+    </None>
+    <None Include="frontend_egui\src\uniform.rs">
+      <Filter>frontend_egui\src</Filter>
+    </None>
+    <None Include="frontend_egui\src\workspace.rs">
+      <Filter>frontend_egui\src</Filter>
+    </None>
+    <None Include="frontend_egui\src\dialogs\diskimage.rs">
+      <Filter>frontend_egui\src\dialogs</Filter>
+    </None>
+    <None Include="frontend_egui\src\dialogs\mod.rs">
+      <Filter>frontend_egui\src\dialogs</Filter>
+    </None>
+    <None Include="frontend_egui\src\dialogs\modelselect.rs">
+      <Filter>frontend_egui\src\dialogs</Filter>
+    </None>
+    <None Include="frontend_egui\src\util\relativepath.rs">
+      <Filter>frontend_egui\src\util</Filter>
+    </None>
+    <None Include="frontend_egui\src\util\mod.rs">
+      <Filter>frontend_egui\src\util</Filter>
+    </None>
+    <None Include="frontend_egui\src\widgets\breakpoints.rs">
+      <Filter>frontend_egui\src\widgets</Filter>
+    </None>
+    <None Include="frontend_egui\src\widgets\disassembly.rs">
+      <Filter>frontend_egui\src\widgets</Filter>
+    </None>
+    <None Include="frontend_egui\src\widgets\framebuffer.rs">
+      <Filter>frontend_egui\src\widgets</Filter>
+    </None>
+    <None Include="frontend_egui\src\widgets\instruction_history.rs">
+      <Filter>frontend_egui\src\widgets</Filter>
+    </None>
+    <None Include="frontend_egui\src\widgets\memory.rs">
+      <Filter>frontend_egui\src\widgets</Filter>
+    </None>
+    <None Include="frontend_egui\src\widgets\mod.rs">
+      <Filter>frontend_egui\src\widgets</Filter>
+    </None>
+    <None Include="frontend_egui\src\widgets\peripherals.rs">
+      <Filter>frontend_egui\src\widgets</Filter>
+    </None>
+    <None Include="frontend_egui\src\widgets\registers.rs">
+      <Filter>frontend_egui\src\widgets</Filter>
+    </None>
+    <None Include="frontend_egui\src\widgets\systrap_history.rs">
+      <Filter>frontend_egui\src\widgets</Filter>
+    </None>
+    <None Include="frontend_egui\src\widgets\terminal.rs">
+      <Filter>frontend_egui\src\widgets</Filter>
+    </None>
+    <None Include="frontend_egui\src\widgets\watchpoints.rs">
+      <Filter>frontend_egui\src\widgets</Filter>
+    </None>
+    <None Include="frontend_tui\Cargo.lock">
+      <Filter>frontend_tui</Filter>
+    </None>
+    <None Include="frontend_tui\Cargo.toml">
+      <Filter>frontend_tui</Filter>
+    </None>
+    <None Include="frontend_tui\src\keymap_sdl.rs">
+      <Filter>frontend_tui\src</Filter>
+    </None>
+    <None Include="frontend_tui\src\main.rs">
+      <Filter>frontend_tui\src</Filter>
+    </None>
+    <None Include="frontend_tui\src\renderer_sdl.rs">
+      <Filter>frontend_tui\src</Filter>
+    </None>
+    <None Include="frontend_tui\src\ui\browser.rs">
+      <Filter>frontend_tui\src\ui</Filter>
+    </None>
+    <None Include="frontend_tui\src\ui\debugger.rs">
+      <Filter>frontend_tui\src\ui</Filter>
+    </None>
+    <None Include="frontend_tui\src\ui\mod.rs">
+      <Filter>frontend_tui\src\ui</Filter>
+    </None>
+    <None Include="frontend_tui\src\ui\status.rs">
+      <Filter>frontend_tui\src\ui</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="core">
@@ -287,6 +395,30 @@
     </Filter>
     <Filter Include="core\src\mac\swim">
       <UniqueIdentifier>{b46a8aa2-ae89-4ac6-87b0-9cfe9d289eff}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="frontend_egui">
+      <UniqueIdentifier>{71469aae-d5df-468c-aa00-2c1417e41f93}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="frontend_egui\src">
+      <UniqueIdentifier>{b5caa638-c35c-4c87-b72e-9b2b2d723139}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="frontend_egui\src\dialogs">
+      <UniqueIdentifier>{01d5e581-c8b4-4d32-9533-ec25fc29523b}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="frontend_egui\src\util">
+      <UniqueIdentifier>{c5832660-5cfc-4685-a815-c92a943c3c2b}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="frontend_egui\src\widgets">
+      <UniqueIdentifier>{e7546d65-5139-40d9-a799-200ecb4d1b42}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="frontend_tui">
+      <UniqueIdentifier>{dba179ae-eeff-493c-95f7-c62b2ab146ba}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="frontend_tui\src">
+      <UniqueIdentifier>{114820e4-3771-48ac-b851-104e5a85af72}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="frontend_tui\src\ui">
+      <UniqueIdentifier>{07556f5d-7f01-49d5-ada2-8696f4f1012b}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
 </Project>
