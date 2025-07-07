@@ -10,7 +10,7 @@ mod fluxfox;
 mod moof;
 mod pfi;
 mod pri;
-mod raw;
+pub mod raw;
 
 use std::path::Path;
 
