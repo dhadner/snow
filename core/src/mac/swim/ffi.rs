@@ -1,6 +1,6 @@
-use std::os::raw::{c_int, c_uint, c_uchar};
+use std::os::raw::{c_uint};
 use crate::mac::swim::drive::{DriveType, FloppyDrive};
-use snow_floppy::{FloppyImage, FloppyType};
+use snow_floppy::{FloppyImage};
 
 #[repr(C)]
 pub struct FFIFloppyDrive {
