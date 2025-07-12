@@ -337,6 +337,12 @@
     <None Include="frontend_tui\src\ui\status.rs">
       <Filter>frontend_tui\src\ui</Filter>
     </None>
+    <None Include="floppy\src\ffi.rs">
+      <Filter>floppy\src</Filter>
+    </None>
+    <None Include="core\src\mac\swim\ffi.rs">
+      <Filter>core\src\mac\swim</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="core">

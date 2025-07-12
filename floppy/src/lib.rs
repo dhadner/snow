@@ -2,6 +2,9 @@ pub mod flux;
 pub mod loaders;
 mod macformat;
 
+#[cfg(feature = "ffi")]
+pub mod ffi;
+
 use rand::Rng;
 use std::collections::HashMap;
 

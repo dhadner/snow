@@ -39,14 +39,20 @@
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <NMakeBuildCommandLine></NMakeBuildCommandLine>
-    <NMakeReBuildCommandLine></NMakeReBuildCommandLine>
-    <NMakeCleanCommandLine></NMakeCleanCommandLine>
+    <NMakeBuildCommandLine>
+    </NMakeBuildCommandLine>
+    <NMakeReBuildCommandLine>
+    </NMakeReBuildCommandLine>
+    <NMakeCleanCommandLine>
+    </NMakeCleanCommandLine>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <NMakeBuildCommandLine></NMakeBuildCommandLine>
-    <NMakeReBuildCommandLine></NMakeReBuildCommandLine>
-    <NMakeCleanCommandLine></NMakeCleanCommandLine>
+    <NMakeBuildCommandLine>
+    </NMakeBuildCommandLine>
+    <NMakeReBuildCommandLine>
+    </NMakeReBuildCommandLine>
+    <NMakeCleanCommandLine>
+    </NMakeCleanCommandLine>
   </PropertyGroup>
   <ItemDefinitionGroup>
   </ItemDefinitionGroup>
@@ -99,6 +105,7 @@
     <None Include="core\src\mac\scc.rs" />
     <None Include="core\src\mac\scsi.rs" />
     <None Include="core\src\mac\swim\drive.rs" />
+    <None Include="core\src\mac\swim\ffi.rs" />
     <None Include="core\src\mac\swim\ism.rs" />
     <None Include="core\src\mac\swim\iwm.rs" />
     <None Include="core\src\mac\swim\mod.rs" />
@@ -114,6 +121,7 @@
     <None Include="core\src\util\range.rs" />
     <None Include="floppy\build.rs" />
     <None Include="floppy\Cargo.toml" />
+    <None Include="floppy\src\ffi.rs" />
     <None Include="floppy\src\flux.rs" />
     <None Include="floppy\src\lib.rs" />
     <None Include="floppy\src\loaders\a2r2.rs" />

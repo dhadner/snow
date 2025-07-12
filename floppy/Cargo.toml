@@ -20,6 +20,7 @@ built = { version = "0.7.7", features = ["git2"] }
 [features]
 default = ["fluxfox"]
 fluxfox = ["dep:fluxfox"]
+ffi = []
 
 [lints]
 workspace = true

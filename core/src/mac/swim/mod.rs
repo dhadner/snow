@@ -7,6 +7,9 @@ pub mod drive;
 pub mod ism;
 pub mod iwm;
 
+#[cfg(feature = "ffi")]
+pub mod ffi;
+
 use std::collections::VecDeque;
 
 use anyhow::{bail, Result};
