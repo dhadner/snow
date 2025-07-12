@@ -7,6 +7,9 @@ pub struct FFIFloppyDrive {
     drive: FloppyDrive,
 }
 
+/// Although this is identical to the Rust `DriveType` enum,
+/// we define it separately for FFI compatibility to avoid
+/// adding '#[repr(C)]' to the Rust enum.
 #[repr(C)]
 pub enum FFIDriveType {
     None,
