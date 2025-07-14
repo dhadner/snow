@@ -37,7 +37,7 @@ pub unsafe extern "C" fn floppy_drive_new(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn floppy_drive_free(ptr: *mut FFIFloppyDrive) {
     if !ptr.is_null() {
-        let _ = unsafe{ Box::from_raw(ptr); };
+        let _ = unsafe{ let _ = Box::from_raw(ptr); };
     }
 }
 
