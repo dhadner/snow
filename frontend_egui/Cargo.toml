@@ -5,14 +5,14 @@ edition = "2021"
 build = "build.rs"
 
 [build-dependencies]
-built = { version = "0.7.7", features = ["git2"] }
+built = { version = "0.8.0", features = ["chrono", "git2"] }
 
 [dependencies]
 anyhow = "1.0.95"
-built = { version = "0.7.7", features = ["git2"] }
+built = { version = "0.8.0", features = ["chrono", "git2"] }
 chrono = "0.4.40"
 clap = { version = "4.5.23", features = ["derive"] }
-crossbeam-channel = "0.5.14"
+crossbeam-channel = "0.5.15"
 dirs = "6.0.0"
 eframe = "0.30.0"
 egui-dropdown = "0.12.0"
@@ -32,13 +32,20 @@ num-derive = "0.4.2"
 num-traits = "0.2.19"
 pathdiff = "0.2.3"
 png = "0.17.16"
-sdl2 = { version = "0.37.0", features = ["static-link", "use-pkgconfig"] }
+rand = "0.9.1"
 serde = { version = "1.0.218", features = ["derive"] }
 serde_json = "1.0.139"
 sha2 = "0.10.8"
 snow_core = { version = "0.1.0", path = "../core", features = ["mmap"] }
 snow_floppy = { version = "0.1.0", path = "../floppy" }
 strum = "0.26.3"
+
+[target.'cfg(target_os = "freebsd")'.dependencies]
+# https://github.com/twvd/snow/issues/49
+sdl2 = { version = "0.37.0", features = ["use-pkgconfig"] }
+
+[target.'cfg(not(target_os = "freebsd"))'.dependencies]
+sdl2 = { version = "0.37.0", features = ["static-link", "use-pkgconfig"] }
 
 [lints]
 workspace = true

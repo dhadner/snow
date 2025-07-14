@@ -11,6 +11,7 @@ use crate::cpu_m68k::regs::{Register, RegisterFile};
 use crate::debuggable::DebuggableProperties;
 use crate::keymap::KeyEvent;
 use crate::mac::scc::SccCh;
+use crate::mac::scsi::target::ScsiTargetType;
 use crate::mac::MacModel;
 use crate::tickable::Ticks;
 
@@ -31,8 +32,10 @@ pub enum EmulatorCommand {
     InsertFloppyImage(usize, Box<FloppyImage>),
     SaveFloppy(usize, PathBuf),
     EjectFloppy(usize),
-    LoadHddImage(usize, PathBuf),
-    DetachHddImage(usize),
+    ScsiAttachHdd(usize, PathBuf),
+    ScsiAttachCdrom(usize),
+    ScsiLoadMedia(usize, PathBuf),
+    DetachScsiTarget(usize),
     MouseUpdateAbsolute {
         x: u16,
         y: u16,
@@ -91,13 +94,14 @@ pub struct EmulatorStatus {
     pub fdd: [FddStatus; 3],
     pub model: MacModel,
     pub speed: EmulatorSpeed,
-    pub hdd: [Option<HddStatus>; 7],
+    pub scsi: [Option<ScsiTargetStatus>; 7],
 }
 
 #[derive(Debug, Clone)]
-pub struct HddStatus {
-    pub image: PathBuf,
-    pub capacity: usize,
+pub struct ScsiTargetStatus {
+    pub target_type: ScsiTargetType,
+    pub image: Option<PathBuf>,
+    pub capacity: Option<usize>,
 }
 
 #[derive(Debug)]
@@ -127,6 +131,7 @@ pub enum EmulatorEvent {
     NextCode((Address, Vec<u8>)),
     UserMessage(UserMessageType, String),
     FloppyEjected(usize, Box<FloppyImage>),
+    ScsiMediaEjected(usize),
     Memory((Address, Vec<u8>)),
     RecordedInput(InputRecording),
     InstructionHistory(Vec<HistoryEntry>),

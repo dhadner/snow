@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::bus::{Address, Bus, BusResult, IrqSource};
+use crate::cpu_m68k::fpu::regs::FpuRegisterFile;
 use crate::cpu_m68k::M68000_SR_MASK;
 use crate::tickable::{Tickable, Ticks};
 use crate::types::{Byte, LatchingEvent, Long, Word};
@@ -401,31 +402,13 @@ where
         self.step_exception = false;
         self.step_over_addr = None;
 
-        // Check pending interrupts
-        if let Some(level) = self.bus.get_irq() {
-            if level == 7 || self.regs.sr.int_prio_mask() < level {
-                if self
-                    .breakpoints
-                    .contains(&Breakpoint::InterruptLevel(level))
-                {
-                    info!(
-                        "Breakpoint hit (interrupt level): {}, PC: ${:08X}",
-                        level, self.regs.pc
-                    );
-                    self.breakpoint_hit.set();
-                }
-
-                self.raise_irq(
-                    level,
-                    VECTOR_AUTOVECTOR_OFFSET + (Address::from(level - 1) * 4),
-                )?;
-            }
-        }
-
-        // Check pending trace
-        if self.regs.sr.trace() && !self.trace_mask {
-            self.raise_exception(ExceptionGroup::Group1, VECTOR_TRACE, None)?;
-        }
+        // Flag exceptions before executing the instruction to act on them later
+        let trace_exception = self.regs.sr.trace() && !self.trace_mask;
+        let irq_exception = match self.bus.get_irq() {
+            Some(7) => 7,
+            Some(level) if level > self.regs.sr.int_prio_mask() => level,
+            _ => 0,
+        };
 
         // Start of instruction execution
         if self.history_enabled {
@@ -511,6 +494,31 @@ where
         };
 
         self.prefetch_refill()?;
+
+        // Check pending trace
+        if trace_exception {
+            self.raise_exception(ExceptionGroup::Group1, VECTOR_TRACE, None)?;
+        }
+
+        // Check pending interrupts
+        if irq_exception != 0 {
+            let level = irq_exception;
+            if self
+                .breakpoints
+                .contains(&Breakpoint::InterruptLevel(level))
+            {
+                info!(
+                    "Breakpoint hit (interrupt level): {}, PC: ${:08X}",
+                    level, self.regs.pc
+                );
+                self.breakpoint_hit.set();
+            }
+
+            self.raise_irq(
+                level,
+                VECTOR_AUTOVECTOR_OFFSET + (Address::from(level - 1) * 4),
+            )?;
+        }
 
         // Test breakpoint on next PC location
         if self
@@ -735,7 +743,7 @@ where
                         self.breakpoint_hit.set();
                     }
 
-                    if a == 1 {
+                    if a == 2 {
                         // Address errors occur AFTER the first Word was accessed and not at all if
                         // it is a byte access, so this is the perfect time to check.
                         self.verify_access::<T>(oaddr, true)?;
@@ -1168,7 +1176,6 @@ where
                 }
 
                 self.advance_cycles(4)?;
-                log::debug!("Unhandled LINEF: {:04X}", instr.data);
                 self.raise_exception(ExceptionGroup::Group2, VECTOR_LINEF, None)
             }
 
@@ -1969,13 +1976,22 @@ where
         self.regs.sr.set_c(false);
         self.regs.sr.set_v(false);
 
-        // Clear EA cache
-        // TODO this is kinda hacky
+        // Clear EA cache to write to the left mode
         self.step_ea_addr = None;
         instr.clear_extword();
 
-        match (instr.get_addr_mode_left()?, instr.get_addr_mode()?) {
-            (AddressingMode::IndirectPreDec, _) => {
+        match (
+            std::mem::size_of::<T>(),
+            instr.get_addr_mode_left()?,
+            instr.get_addr_mode()?,
+        ) {
+            (4, AddressingMode::IndirectPreDec, _) => {
+                // Writes high to low and fetch instead of idle cycles
+                let addr = self.regs.read_a_predec::<Address>(instr.get_op1(), 4);
+                self.prefetch_pump()?;
+                self.write_ticks_order::<T, TORDER_HIGHLOW>(addr, value)?;
+            }
+            (_, AddressingMode::IndirectPreDec, _) => {
                 // MOVE ..., -(An) this mode has a fetch instead of the idle cycles.
                 let addr: Address = self
                     .regs
@@ -1984,6 +2000,7 @@ where
                 self.write_ticks(addr, value)?;
             }
             (
+                _,
                 AddressingMode::AbsoluteLong,
                 AddressingMode::Indirect
                 | AddressingMode::IndirectDisplacement
@@ -2269,8 +2286,22 @@ where
         }
 
         debug!("RESET instruction");
-        self.bus.reset()?;
         self.advance_cycles(128)?;
+
+        // The MacII / System 4.2 restart routine relies on part of a JMP
+        // being in the prefetch queue because pulling on reset will re-
+        // activate overlay. Re-fill now to have the full JMP pre-fetched.
+        self.prefetch_refill()?;
+
+        // Pull on reset
+        self.bus.reset(false)?;
+
+        // The (external) FPU is connected to the RESET line, so we reset
+        // it here. Not for the models with a CPU with a built-in FPU.
+        if CPU_TYPE == M68020 {
+            self.regs.fpu = FpuRegisterFile::default();
+        }
+
         Ok(())
     }
 
@@ -2457,7 +2488,10 @@ where
             .read_ea::<T>(instr, instr.get_op2())?
             .expand_sign_extend() as i32;
         let value = self.regs.read_d::<T>(instr.get_op1()).expand_sign_extend() as i32;
-        let _result = value - max;
+
+        let (_result, ccr) =
+            Self::alu_sub::<T>(T::chop(max as u32), T::chop(value as u32), self.regs.sr);
+        let t = RegisterSR::default().with_ccr(ccr);
 
         match instr.get_addr_mode()? {
             AddressingMode::Indirect => self.advance_cycles(2)?,
@@ -2469,10 +2503,10 @@ where
         self.regs.sr.set_c(false);
         self.regs.sr.set_v(false);
 
-        if value > max {
+        if t.v() || t.n() {
+            // Short trap
             match instr.get_addr_mode()? {
-                // TODO fix cycle accuracy, shorter instruction only for address registers?
-                AddressingMode::Indirect | AddressingMode::DataRegister => {
+                AddressingMode::Indirect => {
                     self.advance_cycles(6)?;
                 }
                 _ => self.advance_cycles(8)?,
@@ -2480,12 +2514,8 @@ where
             // Offset PC correctly for exception stack frame for CHK
             self.regs.pc = self.regs.pc.wrapping_add(2);
             return self.raise_exception(ExceptionGroup::Group2, VECTOR_CHK, None);
-        }
-
-        //self.regs.sr.set_c(result & 0x10000 != 0);
-        //self.regs.sr.set_v(((value ^ result) & (max ^ value)) < 0);
-
-        if value < 0 {
+        } else if self.regs.sr.n() {
+            // Long trap
             match instr.get_addr_mode()? {
                 AddressingMode::Indirect => self.advance_cycles(8)?,
                 _ => self.advance_cycles(10)?,
@@ -2497,7 +2527,7 @@ where
 
         match instr.get_addr_mode()? {
             AddressingMode::Indirect => self.advance_cycles(4)?,
-            _ => self.advance_cycles(4)?,
+            _ => self.advance_cycles(6)?,
         }
         Ok(())
     }
