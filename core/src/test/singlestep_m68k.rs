@@ -6,7 +6,7 @@ use std::fs;
 use std::path::Path;
 
 use crate::bus::testbus::{Access, Testbus};
-use crate::bus::{Address, Bus};
+use crate::bus::{Address, Bus, BusResult};
 use crate::cpu_m68k::regs::{RegisterFile, RegisterSR};
 use crate::cpu_m68k::{CpuM68000, M68000_ADDRESS_MASK, M68000_SR_MASK};
 use crate::tickable::Ticks;
@@ -287,7 +287,7 @@ fn run_testcase(testcase: Testcase, level: TestLevel) {
 
     let mut bus = Testbus::new(M68000_ADDRESS_MASK);
     for (addr, val) in &testcase.initial.ram {
-        bus.write(*addr, *val);
+        assert_eq!(bus.write(*addr, *val), BusResult::Ok(*val));
     }
 
     let mut cpu = CpuM68000::new(bus);
@@ -435,10 +435,7 @@ mod m68000 {
     cpu_test!(bset, "BSET");
     cpu_test!(bsr, "BSR");
     cpu_test!(btst, "BTST");
-
-    // TODO cycle accuracy
-    cpu_test!(chk, "CHK", TestLevel::StateOnly);
-
+    cpu_test!(chk, "CHK");
     cpu_test!(clr_b, "CLR.b");
     cpu_test!(clr_l, "CLR.l");
     cpu_test!(clr_w, "CLR.w");
@@ -475,10 +472,7 @@ mod m68000 {
     cpu_test!(move_b, "MOVE.b");
     cpu_test!(movefromsr, "MOVEfromSR");
     cpu_test!(movefromusp, "MOVEfromUSP");
-
-    // TODO fix all the insane edge cases of MOVE.l
-    //cpu_test!(move_l, "MOVE.l", TestLevel::StateOnly);
-
+    cpu_test!(move_l, "MOVE.l");
     cpu_test!(movem_l, "MOVEM.l");
     cpu_test!(movem_w, "MOVEM.w");
     cpu_test!(movep_l, "MOVEP.l");

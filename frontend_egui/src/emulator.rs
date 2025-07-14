@@ -19,13 +19,14 @@ use snow_core::cpu_m68k::disassembler::{Disassembler, DisassemblyEntry};
 use snow_core::cpu_m68k::regs::{Register, RegisterFile};
 use snow_core::debuggable::DebuggableProperties;
 use snow_core::emulator::comm::{
-    Breakpoint, EmulatorCommand, EmulatorEvent, EmulatorSpeed, FddStatus, HddStatus,
+    Breakpoint, EmulatorCommand, EmulatorEvent, EmulatorSpeed, FddStatus, ScsiTargetStatus,
     UserMessageType,
 };
 use snow_core::emulator::comm::{EmulatorCommandSender, EmulatorEventReceiver, EmulatorStatus};
 use snow_core::emulator::Emulator;
 use snow_core::keymap::Scancode;
 use snow_core::mac::scc::SccCh;
+use snow_core::mac::scsi::target::ScsiTargetType;
 use snow_core::mac::{ExtraROMs, MacModel, MacMonitor};
 use snow_core::renderer::DisplayBuffer;
 use snow_core::tickable::{Tickable, Ticks};
@@ -34,6 +35,32 @@ use snow_floppy::{Floppy, FloppyImage, FloppyType};
 use crate::audio::SDLAudioSink;
 
 pub type DisassemblyListing = Vec<DisassemblyEntry>;
+pub type ScsiTargets = [ScsiTarget; 7];
+pub struct ScsiTarget {
+    pub target_type: Option<ScsiTargetType>,
+    pub image_path: Option<PathBuf>,
+}
+
+impl From<ScsiTargetStatus> for ScsiTarget {
+    fn from(value: ScsiTargetStatus) -> Self {
+        Self {
+            target_type: Some(value.target_type),
+            image_path: value.image,
+        }
+    }
+}
+
+impl From<Option<ScsiTargetStatus>> for ScsiTarget {
+    fn from(value: Option<ScsiTargetStatus>) -> Self {
+        match value {
+            None => Self {
+                target_type: None,
+                image_path: None,
+            },
+            Some(v) => v.into(),
+        }
+    }
+}
 
 /// Results of initializing the emulator, includes channels
 pub struct EmulatorInitResult {
@@ -78,13 +105,16 @@ pub struct EmulatorState {
 }
 
 impl EmulatorState {
+    #[allow(clippy::too_many_arguments)]
     pub fn init_from_rom(
         &mut self,
         filename: &Path,
         display_rom_path: Option<&Path>,
-        disks: Option<[Option<PathBuf>; 7]>,
+        extension_rom_path: Option<&Path>,
+        scsi_targets: Option<ScsiTargets>,
         pram: Option<&Path>,
         args: &EmulatorInitArgs,
+        model: Option<MacModel>,
     ) -> Result<EmulatorInitResult> {
         let rom = std::fs::read(filename)?;
         let display_rom = if let Some(filename) = display_rom_path {
@@ -92,17 +122,33 @@ impl EmulatorState {
         } else {
             None
         };
-        self.init(&rom, display_rom.as_deref(), disks, pram, args)
+        let extension_rom = if let Some(filename) = extension_rom_path {
+            Some(std::fs::read(filename)?)
+        } else {
+            None
+        };
+        self.init(
+            &rom,
+            display_rom.as_deref(),
+            extension_rom.as_deref(),
+            scsi_targets,
+            pram,
+            args,
+            model,
+        )
     }
 
     #[allow(clippy::needless_pass_by_value)]
+    #[allow(clippy::too_many_arguments)]
     fn init(
         &mut self,
         rom: &[u8],
         display_rom: Option<&[u8]>,
-        disks: Option<[Option<PathBuf>; 7]>,
+        extension_rom: Option<&[u8]>,
+        scsi_targets: Option<ScsiTargets>,
         pram: Option<&Path>,
         args: &EmulatorInitArgs,
+        model: Option<MacModel>,
     ) -> Result<EmulatorInitResult> {
         // Terminate running emulator (if any)
         self.deinit();
@@ -110,19 +156,24 @@ impl EmulatorState {
         self.last_rom = rom.to_vec();
 
         // Initialize emulator
-        let model =
-            MacModel::detect_from_rom(rom).ok_or_else(|| anyhow!("Unsupported ROM file"))?;
-        let (mut emulator, frame_recv) = if let Some(display_rom) = display_rom {
-            Emulator::new_with_extra(
-                rom,
-                &[ExtraROMs::MDC12(display_rom)],
-                model,
-                args.monitor,
-                !args.mouse_disabled,
-            )
+        let model = if let Some(selected) = model {
+            // Use the explicitly selected model
+            selected
         } else {
-            Emulator::new_with_extra(rom, &[], model, args.monitor, !args.mouse_disabled)
-        }?;
+            // Fall back to ROM autodetection
+            MacModel::detect_from_rom(rom).ok_or_else(|| anyhow!("Unsupported ROM file"))?
+        };
+        // Build extra ROMs array
+        let mut extra_roms = Vec::new();
+        if let Some(display_rom) = display_rom {
+            extra_roms.push(ExtraROMs::MDC12(display_rom));
+        }
+        if let Some(extension_rom) = extension_rom {
+            extra_roms.push(ExtraROMs::ExtensionROM(extension_rom));
+        }
+
+        let (mut emulator, frame_recv) =
+            Emulator::new_with_extra(rom, &extra_roms, model, args.monitor, !args.mouse_disabled)?;
 
         let cmd = emulator.create_cmd_sender();
 
@@ -144,24 +195,42 @@ impl EmulatorState {
 
         if model.has_scsi() {
             for id in 0..7 {
-                let Some(ref disks) = disks else {
+                let Some(ref targets) = scsi_targets else {
                     break;
                 };
-                let Some(ref filename) = disks[id] else {
-                    continue;
+                match &targets[id] {
+                    ScsiTarget {
+                        target_type: Some(ScsiTargetType::Disk),
+                        image_path: Some(filename),
+                    } => match emulator.load_hdd_image(filename, id) {
+                        Ok(_) => {
+                            info!(
+                                "SCSI ID #{}: loaded image file {}",
+                                id,
+                                filename.to_string_lossy()
+                            );
+                        }
+                        Err(e) => {
+                            error!("SCSI ID #{}: image load failed: {}", id, e);
+                        }
+                    },
+                    ScsiTarget {
+                        target_type: Some(ScsiTargetType::Disk),
+                        image_path: None,
+                    } => {
+                        // Invalid, ignore
+                        log::error!("SCSI ID #{} is a hard drive but no image was specified", id);
+                    }
+                    ScsiTarget {
+                        target_type: Some(ScsiTargetType::Cdrom),
+                        ..
+                    } => {
+                        emulator.attach_cdrom(id);
+                    }
+                    ScsiTarget {
+                        target_type: None, ..
+                    } => (),
                 };
-                match emulator.load_hdd_image(filename, id) {
-                    Ok(_) => {
-                        info!(
-                            "SCSI ID #{}: loaded image file {}",
-                            id,
-                            filename.to_string_lossy()
-                        );
-                    }
-                    Err(e) => {
-                        error!("SCSI ID #{}: image load failed: {}", id, e);
-                    }
-                }
             }
         }
 
@@ -295,6 +364,10 @@ impl EmulatorState {
                     ));
                     *self.last_images[idx].borrow_mut() = Some(img);
                 }
+                EmulatorEvent::ScsiMediaEjected(id) => {
+                    self.messages
+                        .push_back((UserMessageType::Notice, format!("CD-ROM #{} ejected", id)));
+                }
                 EmulatorEvent::UserMessage(t, s) => self.messages.push_back((t, s)),
                 EmulatorEvent::Memory(update) => {
                     self.ram_update.push_back(update);
@@ -379,21 +452,19 @@ impl EmulatorState {
         Some(&status.fdd[drive])
     }
 
-    /// Gets a reference to the active SCSI hard drive array.
-    pub fn get_hdds(&self) -> Option<&[Option<HddStatus>]> {
+    /// Gets a reference to the active SCSI target array.
+    pub fn get_scsi_target_status(&self) -> Option<&[Option<ScsiTargetStatus>]> {
         let status = self.status.as_ref()?;
         if !status.model.has_scsi() {
             return None;
         }
-        Some(&status.hdd)
+        Some(&status.scsi)
     }
 
-    /// Gets an array of PathBuf of the loaded disk images
-    pub fn get_disk_paths(&self) -> [Option<PathBuf>; 7] {
-        let Some(status) = self.status.as_ref() else {
-            return core::array::from_fn(|_| None);
-        };
-        core::array::from_fn(|i| status.hdd[i].clone().map(|v| v.image))
+    /// Gets a copy of SCSI targets and loaded media
+    pub fn get_scsi_targets(&self) -> Option<ScsiTargets> {
+        let status = self.get_scsi_target_status()?;
+        Some(core::array::from_fn(|id| status[id].clone().into()))
     }
 
     /// Returns `true` if the emulator has been instansiated and loaded with a ROM.
@@ -473,26 +544,61 @@ impl EmulatorState {
     }
 
     /// Loads a SCSI HDD image from the specified path.
-    pub fn load_hdd_image(&self, idx: usize, path: &Path) {
+    pub fn scsi_attach_hdd(&self, id: usize, path: &Path) {
         let Some(ref sender) = self.cmdsender else {
             return;
         };
 
         sender
-            .send(EmulatorCommand::LoadHddImage(idx, path.to_path_buf()))
+            .send(EmulatorCommand::ScsiAttachHdd(id, path.to_path_buf()))
             .unwrap();
     }
 
-    /// Detach a HDD image from a SCSI ID
-    pub fn detach_hdd(&mut self, id: usize) {
+    /// Attaches a CD-ROM drive at the given ID
+    pub fn scsi_attach_cdrom(&self, id: usize) {
+        let Some(ref sender) = self.cmdsender else {
+            return;
+        };
+
+        sender.send(EmulatorCommand::ScsiAttachCdrom(id)).unwrap();
+    }
+
+    /// Loads CD-ROM media into the specified SCSI target
+    /// Attaches a CD-ROM drive if one is not there
+    pub fn scsi_load_cdrom(&self, id: usize, path: &Path) {
+        let Some(ref sender) = self.cmdsender else {
+            return;
+        };
+
+        if let Some(status) = self.status.as_ref() {
+            if !matches!(
+                status.scsi[id],
+                Some(ScsiTargetStatus {
+                    target_type: ScsiTargetType::Cdrom,
+                    ..
+                })
+            ) {
+                self.scsi_attach_cdrom(id);
+            }
+        }
+        sender
+            .send(EmulatorCommand::ScsiLoadMedia(id, path.to_path_buf()))
+            .unwrap();
+    }
+
+    /// Detach a target from a SCSI ID
+    pub fn scsi_detach_target(&mut self, id: usize) {
         self.cmdsender
             .as_ref()
             .unwrap()
-            .send(EmulatorCommand::DetachHddImage(id))
+            .send(EmulatorCommand::DetachScsiTarget(id))
             .unwrap();
         self.messages.push_back((
             UserMessageType::Notice,
-            format!("SCSI HDD #{} detached. System should be restarted.", id),
+            format!(
+                "SCSI device at #{} detached. System should be restarted.",
+                id
+            ),
         ));
     }
 

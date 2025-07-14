@@ -13,7 +13,10 @@
 - [Working with media](./manual/media/README.md)
   - [Floppies](./manual/media/floppies.md)
   - [Hard drives](./manual/media/harddrives.md)
+  - [CD-ROM](./manual/media/cdrom.md)
+- [Keyboard/mouse](./manual/input.md)
 - [Workspaces](./manual/workspaces.md)
+- [Fullscreen mode](./manual/fullscreen.md)
 - [Debugging](./manual/debugging/README.md)
   - [Breakpoints](./manual/debugging/breakpoints.md)
   - [Registers](./manual/debugging/registers.md)
@@ -23,4 +26,7 @@
   - [Peripherals](./manual/debugging/peripherals.md)
   - [Memory viewer](./manual/debugging/memory.md)
   - [Watchpoints](./manual/debugging/watchpoints.md)
-  
+
+# Guides
+
+ - [Converting volume disk images](./guides/volume.md)

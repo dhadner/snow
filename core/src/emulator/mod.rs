@@ -17,6 +17,7 @@ use crate::mac::adb::{AdbKeyboard, AdbMouse};
 use crate::mac::compact::bus::{CompactMacBus, RAM_DIRTY_PAGESIZE};
 use crate::mac::macii::bus::MacIIBus;
 use crate::mac::scc::Scc;
+use crate::mac::scsi::target::ScsiTargetEvent;
 use crate::mac::{ExtraROMs, MacModel, MacMonitor};
 use crate::renderer::channel::ChannelRenderer;
 use crate::renderer::AudioReceiver;
@@ -24,18 +25,18 @@ use crate::renderer::{DisplayBuffer, Renderer};
 use crate::tickable::{Tickable, Ticks};
 use crate::types::{Byte, ClickEventSender, KeyEventSender};
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use bit_set::BitSet;
 use log::*;
 
 use crate::cpu_m68k::regs::{Register, RegisterFile};
 use crate::emulator::comm::{EmulatorSpeed, UserMessageType};
 use crate::mac::rtc::Rtc;
-use crate::mac::scsi::ScsiController;
+use crate::mac::scsi::controller::ScsiController;
 use crate::mac::swim::Swim;
 use comm::{
     Breakpoint, EmulatorCommand, EmulatorCommandSender, EmulatorEvent, EmulatorEventReceiver,
-    EmulatorStatus, FddStatus, HddStatus, InputRecording,
+    EmulatorStatus, FddStatus, InputRecording, ScsiTargetStatus,
 };
 
 macro_rules! dispatch {
@@ -158,7 +159,7 @@ dispatch! {
         fn cpu_prefetch_refill(&mut self) -> Result<()> { prefetch_refill() }
         fn cpu_reset(&mut self) -> Result<()> { reset() }
 
-        fn bus_reset(&mut self) -> Result<()> { bus.reset() }
+        fn bus_reset(&mut self) -> Result<()> { bus.reset(true) }
         fn bus_write(&mut self, addr: Address, val: Byte) -> crate::bus::BusResult<Byte> { bus.write(addr, val) }
         fn bus_inspect_read(&mut self, addr: Address) -> Option<Byte> { bus.inspect_read(addr) }
         fn bus_inspect_write(&mut self, addr: Address, val: Byte) -> Option<()> { bus.inspect_write(addr, val) }
@@ -232,8 +233,14 @@ impl Emulator {
             | MacModel::SE
             | MacModel::SeFdhd
             | MacModel::Classic => {
+                // Find extension ROM if present
+                let extension_rom = extra_roms.iter().find_map(|p| match p {
+                    ExtraROMs::ExtensionROM(data) => Some(*data),
+                    _ => None,
+                });
+
                 // Initialize bus and CPU
-                let bus = CompactMacBus::new(model, rom, renderer, mouse_enabled);
+                let bus = CompactMacBus::new(model, rom, extension_rom, renderer, mouse_enabled);
                 let mut cpu = Box::new(CpuM68000::new(bus));
                 assert_eq!(cpu.get_type(), model.cpu_type());
 
@@ -267,11 +274,18 @@ impl Emulator {
                     bail!("Macintosh II requires display card ROM")
                 };
 
+                // Find extension ROM if present
+                let extension_rom = extra_roms.iter().find_map(|p| match p {
+                    ExtraROMs::ExtensionROM(data) => Some(*data),
+                    _ => None,
+                });
+
                 // Initialize bus and CPU
                 let bus = MacIIBus::new(
                     model,
                     rom,
                     mdcrom,
+                    extension_rom,
                     vec![renderer],
                     monitor.unwrap_or_default(),
                     mouse_enabled,
@@ -344,6 +358,23 @@ impl Emulator {
                     .send(EmulatorEvent::FloppyEjected(i, img))?;
             }
         }
+        for (id, target) in self
+            .config
+            .scsi_mut()
+            .targets
+            .iter_mut()
+            .enumerate()
+            .filter_map(|(i, t)| t.as_mut().map(|t| (i, t)))
+        {
+            match target.take_event() {
+                Some(ScsiTargetEvent::MediaEjected) => {
+                    self.event_sender
+                        .send(EmulatorEvent::ScsiMediaEjected(id))
+                        .unwrap();
+                }
+                None => (),
+            }
+        }
 
         self.event_sender
             .send(EmulatorEvent::Status(Box::new(EmulatorStatus {
@@ -361,13 +392,18 @@ impl Emulator {
                     dirty: self.config.swim().drives[i].floppy.is_dirty(),
                 }),
                 model: self.model,
-                hdd: core::array::from_fn(|i| {
+                scsi: core::array::from_fn(|i| {
                     self.config
                         .scsi()
-                        .get_disk_capacity(i)
-                        .map(|capacity| HddStatus {
-                            capacity,
-                            image: self.config.scsi().get_disk_imagefn(i).unwrap().to_owned(),
+                        .get_target_type(i)
+                        .map(|t| ScsiTargetStatus {
+                            target_type: t,
+                            capacity: self.config.scsi().get_disk_capacity(i),
+                            image: self
+                                .config
+                                .scsi()
+                                .get_disk_imagefn(i)
+                                .map(|p| p.to_path_buf()),
                         })
                 }),
                 speed: self.config.speed(),
@@ -454,7 +490,7 @@ impl Emulator {
     }
 
     pub fn load_hdd_image(&mut self, filename: &Path, scsi_id: usize) -> Result<()> {
-        self.config.scsi_mut().load_disk_at(filename, scsi_id)
+        self.config.scsi_mut().attach_hdd_at(filename, scsi_id)
     }
 
     fn user_error(&self, msg: &str) {
@@ -514,6 +550,11 @@ impl Emulator {
 
     pub fn get_cycles(&self) -> Ticks {
         self.config.cpu_cycles()
+    }
+
+    pub fn attach_cdrom(&mut self, id: usize) {
+        self.config.scsi_mut().attach_cdrom_at(id);
+        info!("SCSI ID #{}: CD-ROM drive attached", id);
     }
 }
 
@@ -592,27 +633,43 @@ impl Tickable for Emulator {
                     EmulatorCommand::EjectFloppy(drive) => {
                         self.config.swim_mut().drives[drive].eject();
                     }
-                    EmulatorCommand::LoadHddImage(id, filename) => {
+                    EmulatorCommand::ScsiAttachHdd(id, filename) => {
                         match self.load_hdd_image(&filename, id) {
-                            Ok(_) => info!(
-                                "SCSI ID #{}: image '{}' loaded",
-                                id,
-                                filename.to_string_lossy()
-                            ),
-                            Err(e) => {
-                                self.user_error(&format!(
-                                    "SCSI ID #{}: cannot load image '{}': {}",
+                            Ok(_) => {
+                                info!(
+                                    "SCSI ID #{}: hard drive attached, image '{}' loaded",
                                     id,
-                                    filename.to_string_lossy(),
-                                    e
-                                ));
+                                    filename.display()
+                                );
+                            }
+                            Err(e) => {
+                                self.user_error(&format!("SCSI ID #{}: {:#}", id, e));
                             }
                         };
                         self.status_update()?;
                     }
-                    EmulatorCommand::DetachHddImage(id) => {
-                        self.config.scsi_mut().detach_disk_at(id);
-                        info!("SCSI ID #{}: disk detached", id);
+                    EmulatorCommand::ScsiLoadMedia(id, filename) => {
+                        match self.config.scsi_mut().targets[id]
+                            .as_mut()
+                            .context("No target attached")?
+                            .load_media(&filename)
+                        {
+                            Ok(_) => {
+                                info!("SCSI ID #{}: image '{}' loaded", id, filename.display());
+                            }
+                            Err(e) => {
+                                self.user_error(&format!("SCSI ID #{}: {:#}", id, e));
+                            }
+                        };
+                        self.status_update()?;
+                    }
+                    EmulatorCommand::ScsiAttachCdrom(id) => {
+                        self.attach_cdrom(id);
+                        self.status_update()?;
+                    }
+                    EmulatorCommand::DetachScsiTarget(id) => {
+                        self.config.scsi_mut().detach_target(id);
+                        info!("SCSI ID #{}: target detached", id);
                         self.status_update()?;
                     }
                     EmulatorCommand::SaveFloppy(drive, filename) => {
