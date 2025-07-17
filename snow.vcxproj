@@ -103,7 +103,11 @@
     <None Include="core\src\mac\pluskbd.rs" />
     <None Include="core\src\mac\rtc.rs" />
     <None Include="core\src\mac\scc.rs" />
-    <None Include="core\src\mac\scsi.rs" />
+    <None Include="core\src\mac\scsi\cdrom.rs" />
+    <None Include="core\src\mac\scsi\controller.rs" />
+    <None Include="core\src\mac\scsi\disk.rs" />
+    <None Include="core\src\mac\scsi\mod.rs" />
+    <None Include="core\src\mac\scsi\target.rs" />
     <None Include="core\src\mac\swim\drive.rs" />
     <None Include="core\src\mac\swim\ffi.rs" />
     <None Include="core\src\mac\swim\ism.rs" />

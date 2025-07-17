@@ -103,9 +103,6 @@
     <None Include="core\src\mac\scc.rs">
       <Filter>core\src\mac</Filter>
     </None>
-    <None Include="core\src\mac\scsi.rs">
-      <Filter>core\src\mac</Filter>
-    </None>
     <None Include="core\src\mac\via.rs">
       <Filter>core\src\mac</Filter>
     </None>
@@ -343,6 +340,21 @@
     <None Include="core\src\mac\swim\ffi.rs">
       <Filter>core\src\mac\swim</Filter>
     </None>
+    <None Include="core\src\mac\scsi\cdrom.rs">
+      <Filter>core\src\mac\scsi</Filter>
+    </None>
+    <None Include="core\src\mac\scsi\controller.rs">
+      <Filter>core\src\mac\scsi</Filter>
+    </None>
+    <None Include="core\src\mac\scsi\disk.rs">
+      <Filter>core\src\mac\scsi</Filter>
+    </None>
+    <None Include="core\src\mac\scsi\mod.rs">
+      <Filter>core\src\mac\scsi</Filter>
+    </None>
+    <None Include="core\src\mac\scsi\target.rs">
+      <Filter>core\src\mac\scsi</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="core">
@@ -425,6 +437,9 @@
     </Filter>
     <Filter Include="frontend_tui\src\ui">
       <UniqueIdentifier>{07556f5d-7f01-49d5-ada2-8696f4f1012b}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="core\src\mac\scsi">
+      <UniqueIdentifier>{565028ef-0d86-4118-8d00-eb3161fc88c7}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
 </Project>
