@@ -7,14 +7,17 @@ use super::video::Video;
 use crate::bus::{Address, Bus, BusMember, BusResult, InspectableBus, IrqSource};
 use crate::debuggable::Debuggable;
 use crate::emulator::comm::EmulatorSpeed;
-use crate::mac::scc::Scc;
+use crate::emulator::MouseMode;
+use crate::mac::scc::{Scc, SccCh};
 use crate::mac::scsi::controller::ScsiController;
+use crate::mac::swim::drive::DriveType;
 use crate::mac::swim::Swim;
 use crate::mac::via::Via;
 use crate::mac::MacModel;
 use crate::renderer::{AudioReceiver, Renderer};
 use crate::tickable::{Tickable, Ticks};
 use crate::types::{Byte, LatchingEvent};
+use crate::util::take_from_accumulator;
 
 use anyhow::Result;
 use bit_set::BitSet;
@@ -85,8 +88,14 @@ pub struct CompactMacBus<TRenderer: Renderer> {
     /// Programmer's key pressed
     progkey_pressed: LatchingEvent,
 
-    /// Mouse enabled
-    mouse_enabled: bool,
+    /// Mouse mode
+    mouse_mode: MouseMode,
+
+    /// Early/Plus mouse motion accumulator for X coordinate
+    plusmouse_rel_x: i32,
+
+    /// Early/Plus mouse motion accumulator for Y coordinate
+    plusmouse_rel_y: i32,
 }
 
 impl<TRenderer> CompactMacBus<TRenderer>
@@ -116,13 +125,22 @@ where
         rom: &[u8],
         extension_rom: Option<&[u8]>,
         renderer: TRenderer,
-        mouse_enabled: bool,
+        mouse_mode: MouseMode,
+        ram_size: Option<usize>,
+        override_fdd_type: Option<DriveType>,
     ) -> Self {
-        let ram_size = model.ram_size();
+        let ram_size = ram_size.unwrap_or_else(|| model.ram_size_default());
+
         let fb_alt_start = ram_size as Address - Video::<TRenderer>::FRAMEBUFFER_ALT_OFFSET;
         let fb_main_start = ram_size as Address - Video::<TRenderer>::FRAMEBUFFER_MAIN_OFFSET;
         let sound_alt_start = ram_size - Self::SOUND_ALT_OFFSET;
         let sound_main_start = ram_size - Self::SOUND_MAIN_OFFSET;
+
+        let fdds = if let Some(override_fdd_type) = override_fdd_type {
+            vec![override_fdd_type; model.fdd_drives().len()]
+        } else {
+            model.fdd_drives().to_vec()
+        };
 
         if extension_rom.is_some() {
             log::info!("Extension ROM present");
@@ -142,7 +160,7 @@ where
             audio: AudioState::default(),
             eclock: 0,
             scc: Scc::new(),
-            swim: Swim::new(model.fdd_drives(), model.fdd_hd(), 8_000_000),
+            swim: Swim::new(&fdds, model.fdd_hd(), 8_000_000),
             scsi: ScsiController::new(),
             mouse_ready: false,
 
@@ -163,7 +181,9 @@ where
             vblank_time: Instant::now(),
             vpa_sync: false,
             progkey_pressed: LatchingEvent::default(),
-            mouse_enabled,
+            mouse_mode,
+            plusmouse_rel_x: 0,
+            plusmouse_rel_y: 0,
         };
 
         // Disable memory test
@@ -220,7 +240,7 @@ where
                 self.write_normal(addr, val)
             }
             // SCSI
-            0x0058_0000..=0x005F_FFFF => self.scsi.write(addr, val),
+            0x0058_0000..=0x005F_FFFF if self.model.has_scsi() => self.scsi.write(addr, val),
             // RAM
             0x0060_0000..=0x007F_FFFF => {
                 let idx = ((addr as usize) - 0x60_0000) & self.ram_mask;
@@ -261,7 +281,7 @@ where
                 Some(self.ram[idx] = val)
             }
             // SCSI
-            0x0058_0000..=0x005F_FFFF => self.scsi.write(addr, val),
+            0x0058_0000..=0x005F_FFFF if self.model.has_scsi() => self.scsi.write(addr, val),
             // SCC
             0x009F_0000..=0x009F_FFFF | 0x00BF_0000..=0x00BF_FFFF => self.scc.write(addr >> 1, val),
             // IWM
@@ -288,7 +308,7 @@ where
                 Some(*self.rom.get(addr as usize & self.rom_mask).unwrap_or(&0xFF))
             }
             // SCSI
-            0x0058_0000..=0x005F_FFFF => self.scsi.read(addr),
+            0x0058_0000..=0x005F_FFFF if self.model.has_scsi() => self.scsi.read(addr),
             // RAM
             0x0060_0000..=0x007F_FFFF => Some(self.ram[addr as usize & self.ram_mask]),
             // Phase adjust (ignore)
@@ -330,21 +350,28 @@ where
                 if self.model == MacModel::Plus {
                     // Plus with SCSI has no repeated ROM images above 0x440000 as
                     // indication of SCSI controller present.
+                    //
+                    // 512Ke (using Plus ROM) does have repeated ROM images
                     Some(0xFF)
                 } else {
                     Some(*self.rom.get(addr as usize & self.rom_mask).unwrap_or(&0xFF))
                 }
             }
             // SCSI
-            0x0058_0000..=0x005F_FFFF => self.scsi.read(addr),
+            0x0058_0000..=0x005F_FFFF if self.model.has_scsi() => self.scsi.read(addr),
             // SCC
             0x009F_0000..=0x009F_FFFF | 0x00BF_0000..=0x00BF_FFFF => self.scc.read(addr >> 1),
             // IWM
             0x00DF_E1FF..=0x00DF_FFFF => self.swim.read(addr),
             // VIA
             0x00EF_0000..=0x00EF_FFFF => self.via.read(addr),
-            // Test software region (ignore)
-            0x00F8_0000..=0x00F9_FFFF => Some(0xFF),
+            // Test software region / extension ROM
+            0x00F8_0000..=0x00F9_FFFF => Some(
+                *self
+                    .extension_rom
+                    .get((addr - 0xF8_0000) as usize)
+                    .unwrap_or(&0xFF),
+            ),
 
             _ => None,
         };
@@ -357,52 +384,40 @@ where
 
     /// Updates the mouse position (relative coordinates) and button state
     pub fn mouse_update_rel(&mut self, relx: i16, rely: i16, button: Option<bool>) {
-        if !self.mouse_enabled {
-            return;
-        }
-
-        let old_x = self.read_ram::<u16>(Self::ADDR_RAWMOUSE_X);
-        let old_y = self.read_ram::<u16>(Self::ADDR_RAWMOUSE_Y);
-
-        if !self.mouse_ready && (old_x != 15 || old_y != 15) {
-            // Wait until the boot process has initialized the mouse position so we don't
-            // interfere with the memory test.
-            return;
-        }
-        self.mouse_ready = true;
-
-        if relx != 0 || rely != 0 {
-            let new_x = old_x.wrapping_add_signed(relx);
-            let new_y = old_y.wrapping_add_signed(rely);
-
-            // Report updated mouse coordinates to OS
-            self.write_ram(Self::ADDR_MTEMP_X, new_x);
-            self.write_ram(Self::ADDR_MTEMP_Y, new_y);
-            if self.model >= MacModel::SE {
-                // SE+ needs to see even a small difference between the current (RawMouse)
-                // and new (MTemp) position, otherwise the change is ignored.
-                self.write_ram(Self::ADDR_RAWMOUSE_X, new_x - 1);
-                self.write_ram(Self::ADDR_RAWMOUSE_Y, new_y + 1);
-            } else {
-                self.write_ram(Self::ADDR_RAWMOUSE_X, new_x);
-                self.write_ram(Self::ADDR_RAWMOUSE_Y, new_y);
-            }
-            self.write_ram(Self::ADDR_CRSRNEW, 1_u8);
-        }
-
         if let Some(b) = button {
-            if self.model.has_adb() {
-                // TODO ADB
-            } else {
+            if !self.model.has_adb() {
                 // Mouse button through VIA I/O
                 self.via.b_in.set_sw(!b);
             }
+        }
+
+        if relx == 0 && rely == 0 {
+            return;
+        }
+
+        match self.mouse_mode {
+            MouseMode::Absolute => {
+                let old_x = self.read_ram::<u16>(Self::ADDR_RAWMOUSE_X);
+                let old_y = self.read_ram::<u16>(Self::ADDR_RAWMOUSE_Y);
+                let new_x = old_x.wrapping_add_signed(relx);
+                let new_y = old_y.wrapping_add_signed(rely);
+                self.mouse_update_abs(new_x, new_y);
+            }
+            MouseMode::RelativeHw if !self.model.has_adb() => {
+                self.plusmouse_rel_x = self.plusmouse_rel_x.saturating_add(relx.into());
+                self.plusmouse_rel_y = self.plusmouse_rel_y.saturating_add(rely.into());
+            }
+            MouseMode::RelativeHw => {
+                // If ADB, this is not called but handled through the mouse
+                // event channel
+            }
+            MouseMode::Disabled => (),
         }
     }
 
     /// Updates the mouse position (absolute coordinates)
     pub fn mouse_update_abs(&mut self, x: u16, y: u16) {
-        if !self.mouse_enabled {
+        if self.mouse_mode != MouseMode::Absolute {
             return;
         }
 
@@ -473,6 +488,41 @@ where
     pub fn video_blank(&mut self) -> Result<()> {
         self.video.blank()
     }
+
+    fn plusmouse_tick(&mut self) {
+        if self.mouse_mode != MouseMode::RelativeHw
+            || (self.plusmouse_rel_x == 0 && self.plusmouse_rel_y == 0)
+        {
+            return;
+        }
+
+        let motion_x = take_from_accumulator(&mut self.plusmouse_rel_x, 1);
+        let motion_y = take_from_accumulator(&mut self.plusmouse_rel_y, 1);
+
+        if motion_x != 0 {
+            let dcd_a = self.scc.get_dcd(SccCh::A);
+            if motion_x > 0 {
+                // Moving right
+                self.via.b_in.set_mouse_x2(dcd_a);
+            } else if motion_x < 0 {
+                // Moving left
+                self.via.b_in.set_mouse_x2(!dcd_a);
+            }
+            self.scc.set_dcd(SccCh::A, !dcd_a);
+        }
+
+        if motion_y != 0 {
+            let dcd_b = self.scc.get_dcd(SccCh::B);
+            if motion_y > 0 {
+                // Moving up
+                self.via.b_in.set_mouse_y2(!dcd_b);
+            } else if motion_y < 0 {
+                // Moving down
+                self.via.b_in.set_mouse_y2(dcd_b);
+            }
+            self.scc.set_dcd(SccCh::B, !dcd_b);
+        }
+    }
 }
 
 impl<TRenderer> Bus<Address, Byte> for CompactMacBus<TRenderer>
@@ -536,11 +586,15 @@ where
             if let Some((addr, value)) = self.model.disable_memtest() {
                 self.write_ram(addr, value);
             }
+
+            self.ram_dirty
+                .extend(0..(self.ram.len() / RAM_DIRTY_PAGESIZE));
         }
 
-        // Take the ADB transceiver out because that contains crossbeam channels..
-        let oldadb = std::mem::replace(&mut self.via, Via::new(self.model)).adb;
-        let _ = std::mem::replace(&mut self.via.adb, oldadb);
+        // Keep the RTC and ADB for PRAM and event channels
+        let Via { adb, rtc, .. } = std::mem::replace(&mut self.via, Via::new(self.model));
+        self.via.adb = adb;
+        self.via.rtc = rtc;
 
         self.scc = Scc::new();
         self.overlay = true;
@@ -603,6 +657,19 @@ where
             let audiosample = if soundon { soundbuf[scanline * 2] } else { 0 };
 
             self.swim.push_pwm(pwm)?;
+
+            // Sample the mouse here for Early/Plus
+            //
+            // Oscilloscope traces of the SCC show a mouse interrupt can be triggered
+            // at a smallest interval of 284us with vigorous mousing going on.
+            // This translates into ~6.3 scanlines. To be on the safe side, round up to
+            // 8. If the interval is too short, the ROM will not keep up and will
+            // not be able to service Y axis movements anymore.
+            //
+            // From a DCD edge to asserting the interrupt line takes the SCC ~1.5us.
+            if scanline % 8 == 0 {
+                self.plusmouse_tick();
+            }
 
             // Emulator will block here to sync to audio frequency
             match self.speed {
@@ -686,11 +753,14 @@ where
         use crate::debuggable::*;
 
         let mut result = vec![
-            dbgprop_nest!("SCSI controller (NCR 5380)", self.scsi),
             dbgprop_nest!("SWIM", self.swim),
             dbgprop_nest!("VIA (SY6522)", self.via),
             dbgprop_nest!("Video circuit", self.video),
         ];
+
+        if self.model.has_scsi() {
+            result.push(dbgprop_nest!("SCSI controller (NCR 5380)", self.scsi));
+        }
 
         if self.model.has_adb() {
             result.push(dbgprop_nest!("Apple Desktop Bus", self.via.adb));

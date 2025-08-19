@@ -2,7 +2,8 @@ use anyhow::{bail, Context, Result};
 use arrayvec::ArrayVec;
 use either::Either;
 use itertools::Itertools;
-use num::FromPrimitive;
+use num_traits::ToPrimitive;
+use strum::IntoEnumIterator;
 
 use std::fmt::Write;
 
@@ -22,7 +23,7 @@ use super::CpuM68kType;
 #[derive(Clone)]
 pub struct DisassemblyEntry {
     pub addr: Address,
-    pub raw: ArrayVec<u8, 12>,
+    pub raw: ArrayVec<u8, 20>,
     pub str: String,
 }
 
@@ -126,12 +127,22 @@ impl<'a> Disassembler<'a> {
             0b0000000 => "FMOVE",
             0b0000100 => "FSQRT",
             0b0011000 => "FABS",
+            0b0100010 => "FADD",
+            0b0101000 => "FSUB",
             0b0100011 => "FMUL",
             0b0100000 => "FDIV",
-            0b0100010 => "FADD",
             0b0000001 => "FINT",
             0b0000011 => "FINTRZ",
             0b0111000 => "FCMP",
+            0b0100101 => "FREM",
+            0b0111010 => "FTST",
+            0b0011010 => "FNEG",
+            0b0011101 => "FCOS",
+            0b0001010 => "FATAN",
+            0b0011110 => "FGETEXP",
+            0b0001110 => "FSIN",
+            0b0001111 => "FTAN",
+
             _ => "F???",
         }
     }
@@ -344,6 +355,13 @@ impl<'a> Disassembler<'a> {
         })
     }
 
+    fn fmove_ctrl_regs(&self, regs: u8) -> String {
+        FmoveControlReg::iter()
+            .filter(|fc| regs & fc.to_u8().unwrap() != 0)
+            .map(|fc| fc.to_string())
+            .join("+")
+    }
+
     fn do_instr(&mut self, instr: &Instruction) -> Result<()> {
         let mnemonic = instr
             .mnemonic
@@ -483,6 +501,7 @@ impl<'a> Disassembler<'a> {
                 format!("{} {}", mnemonic, target)
             }
 
+            InstructionMnemonic::MOVEfromCCR => format!("MOVE.w {},CCR", self.ea(instr)?),
             InstructionMnemonic::MOVEtoCCR => format!("MOVE.w CCR,{}", self.ea(instr)?),
             InstructionMnemonic::MOVEtoSR => format!("MOVE.w SR,{}", self.ea(instr)?),
             InstructionMnemonic::MOVEfromSR => format!("MOVE.w {},SR", self.ea(instr)?),
@@ -918,11 +937,11 @@ impl<'a> Disassembler<'a> {
                     0b100 => format!(
                         "FMOVE {},{}",
                         self.ea_sz(instr, InstructionSize::Long)?,
-                        FmoveControlReg::from_u8(extword.reg()).context("Invalid ctrlreg")?
+                        self.fmove_ctrl_regs(extword.reg()),
                     ),
                     0b101 => format!(
                         "FMOVE {},{}",
-                        FmoveControlReg::from_u8(extword.reg()).context("Invalid ctrlreg")?,
+                        self.fmove_ctrl_regs(extword.reg()),
                         self.ea_sz(instr, InstructionSize::Long)?,
                     ),
                     0b010 if extword.src_spec() == 0b111 => format!(
@@ -1024,6 +1043,45 @@ impl<'a> Disassembler<'a> {
                     Self::fcc_mnemonic(instr.get_fcc()),
                     displacement
                 )
+            }
+            InstructionMnemonic::FScc_b => {
+                let cc = usize::from(self.get16()? & 0b111111);
+                format!("FS{}.b {}", Self::fcc_mnemonic(cc), self.ea(instr)?)
+            }
+
+            InstructionMnemonic::CAS_b
+            | InstructionMnemonic::CAS_l
+            | InstructionMnemonic::CAS_w => {
+                if instr.data & 0b111111 == 0b111100 {
+                    // CAS2
+                    let extword1 = self.get16()?;
+                    let extword2 = self.get16()?;
+
+                    let rn1 = if extword1 & (1 << 15) != 0 {
+                        Register::An(usize::from((extword1 >> 12) & 0b111))
+                    } else {
+                        Register::Dn(usize::from((extword1 >> 12) & 0b111))
+                    };
+                    let rn2 = if extword2 & (1 << 15) != 0 {
+                        Register::An(usize::from((extword2 >> 12) & 0b111))
+                    } else {
+                        Register::Dn(usize::from((extword2 >> 12) & 0b111))
+                    };
+                    let du1 = usize::from((extword1 >> 6) & 0b111);
+                    let du2 = usize::from((extword2 >> 6) & 0b111);
+                    let dc1 = usize::from(extword1 & 0b111);
+                    let dc2 = usize::from(extword2 & 0b111);
+                    format!(
+                        "{}2.{} D{}:D{},D{}:D{},({}):({})",
+                        mnemonic, sz, dc1, dc2, du1, du2, rn1, rn2
+                    )
+                } else {
+                    // CAS
+                    let extword = self.get16()?;
+                    let dc = (extword & 0b111) as usize;
+                    let du = ((extword >> 6) & 0b111) as usize;
+                    format!("{}.{} D{},D{},{}", mnemonic, sz, dc, du, self.ea(instr)?)
+                }
             }
         };
 

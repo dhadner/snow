@@ -6,16 +6,20 @@ use anyhow::{anyhow, bail, Result};
 use eframe::egui;
 use egui_file_dialog::FileDialog;
 use sha2::{Digest, Sha256};
+use snow_core::emulator::MouseMode;
+use snow_core::mac::swim::drive::DriveType;
 use snow_core::mac::{MacModel, MacMonitor};
 use strum::IntoEnumIterator;
 
 /// Dialog for selecting Macintosh model and associated ROMs
 pub struct ModelSelectionDialog {
     open: bool,
+    last_roms: Vec<(MacModel, PathBuf)>,
+    last_display_roms: Vec<(MacModel, PathBuf)>,
     selected_model: MacModel,
-    memory_size: usize,
     init_args: EmulatorInitArgs,
     selected_monitor: MacMonitor,
+    early_800k: bool,
 
     // Main ROM selection
     main_rom_path: String,
@@ -47,26 +51,33 @@ pub struct ModelSelectionDialog {
     error_message: String,
 }
 
-#[allow(dead_code)]
+fn format_ram(sz: usize) -> String {
+    if sz < 1024 * 1024 {
+        format!("{} KB", sz / 1024)
+    } else {
+        format!("{} MB", sz / 1024 / 1024)
+    }
+}
+
 pub struct ModelSelectionResult {
     pub model: MacModel,
-    pub memory_size: usize,
     pub main_rom_path: PathBuf,
     pub display_rom_path: Option<PathBuf>,
     pub pram_path: Option<PathBuf>,
     pub extension_rom_path: Option<PathBuf>,
     pub init_args: EmulatorInitArgs,
-    pub disable_rom_validation: bool,
 }
 
 impl Default for ModelSelectionDialog {
     fn default() -> Self {
         Self {
             open: false,
+            last_roms: vec![],
+            last_display_roms: vec![],
             selected_model: MacModel::Plus,
-            memory_size: 4 * 1024 * 1024, // 4MB default
             init_args: Default::default(),
             selected_monitor: MacMonitor::default(),
+            early_800k: false,
 
             main_rom_path: String::new(),
             main_rom_valid: false,
@@ -134,16 +145,46 @@ impl Default for ModelSelectionDialog {
 }
 
 impl ModelSelectionDialog {
-    pub fn open(&mut self) {
+    pub fn open(
+        &mut self,
+        last_roms: Vec<(MacModel, PathBuf)>,
+        last_display_roms: Vec<(MacModel, PathBuf)>,
+    ) {
         self.open = true;
+        self.last_roms = last_roms;
+        self.last_display_roms = last_display_roms;
         self.error_message.clear();
         self.result = None;
 
-        // Reset ROM validation when dialog opens
+        self.do_model_changed();
+    }
+
+    fn do_model_changed(&mut self) {
+        // Reset ROM validation when dialog opens or model changes
         self.main_rom_valid = false;
         self.display_rom_valid = false;
-        self.update_memory_options();
         self.update_display_rom_requirement();
+
+        self.init_args.ram_size = None;
+
+        // Load from last used ROMs if possible
+        if let Some((_, path)) = self
+            .last_roms
+            .iter()
+            .find(|(m, _)| *m == self.selected_model)
+        {
+            self.main_rom_path = path.to_string_lossy().to_string();
+        }
+        if self.display_rom_required {
+            if let Some((_, path)) = self
+                .last_display_roms
+                .iter()
+                .find(|(m, _)| *m == self.selected_model)
+            {
+                self.display_rom_path = path.to_string_lossy().to_string();
+            }
+        }
+
         self.do_validate_roms();
     }
 
@@ -155,53 +196,12 @@ impl ModelSelectionDialog {
         self.result.take()
     }
 
-    fn update_memory_options(&mut self) {
-        // Set default memory size based on model
-        self.memory_size = match self.selected_model {
-            MacModel::Early128K => 128 * 1024,
-            MacModel::Early512K => 512 * 1024,
-            MacModel::Plus | MacModel::SE | MacModel::SeFdhd | MacModel::Classic => 4 * 1024 * 1024,
-            MacModel::MacII | MacModel::MacIIFDHD => 8 * 1024 * 1024,
-        };
-    }
-
     fn update_display_rom_requirement(&mut self) {
         self.display_rom_required =
             matches!(self.selected_model, MacModel::MacII | MacModel::MacIIFDHD);
         if !self.display_rom_required {
             self.display_rom_path.clear();
             self.display_rom_valid = false;
-        }
-    }
-
-    #[allow(dead_code, clippy::identity_op)]
-    fn get_memory_options(model: MacModel) -> Vec<(String, usize)> {
-        // TODO
-        match model {
-            MacModel::Early128K => vec![("128KB".to_string(), 128 * 1024)],
-            MacModel::Early512K => vec![("512KB".to_string(), 512 * 1024)],
-            MacModel::Plus => vec![
-                ("1MB".to_string(), 1 * 1024 * 1024),
-                ("2MB".to_string(), 2 * 1024 * 1024),
-                ("4MB".to_string(), 4 * 1024 * 1024),
-            ],
-            MacModel::SE | MacModel::SeFdhd => vec![
-                ("1MB".to_string(), 1 * 1024 * 1024),
-                ("2MB".to_string(), 2 * 1024 * 1024),
-                ("4MB".to_string(), 4 * 1024 * 1024),
-            ],
-            MacModel::Classic => vec![
-                ("2MB".to_string(), 2 * 1024 * 1024),
-                ("4MB".to_string(), 4 * 1024 * 1024),
-            ],
-            MacModel::MacII | MacModel::MacIIFDHD => vec![
-                ("1MB".to_string(), 1 * 1024 * 1024),
-                ("2MB".to_string(), 2 * 1024 * 1024),
-                ("4MB".to_string(), 4 * 1024 * 1024),
-                ("8MB".to_string(), 8 * 1024 * 1024),
-                ("16MB".to_string(), 16 * 1024 * 1024),
-                ("32MB".to_string(), 32 * 1024 * 1024),
-            ],
         }
     }
 
@@ -222,23 +222,17 @@ impl ModelSelectionDialog {
         let rom_data = fs::read(&self.main_rom_path)?;
 
         // Check ROM checksum
-        let detected_model = MacModel::detect_from_rom(&rom_data);
-
-        match detected_model {
-            Some(model) if model == self.selected_model => {
-                self.main_rom_valid = true;
-                Ok(())
-            }
-            Some(model) => {
-                bail!(
-                    "ROM is for '{}' but '{}' was selected",
-                    model,
-                    self.selected_model
-                )
-            }
-            None => {
-                bail!("Unknown or unsupported ROM file")
-            }
+        if self.selected_model.is_valid_rom(&rom_data) {
+            self.main_rom_valid = true;
+            Ok(())
+        } else if let Some(model) = MacModel::detect_from_rom(&rom_data) {
+            bail!(
+                "ROM is for '{}' but '{}' was selected",
+                model,
+                self.selected_model
+            )
+        } else {
+            bail!("Unknown or unsupported ROM file")
         }
     }
 
@@ -340,24 +334,25 @@ impl ModelSelectionDialog {
                         }
                     });
                 ui.end_row();
-
-                // Memory selection
-                //ui.label("Memory size:");
-                //let memory_options = Self::get_memory_options(self.selected_model);
-                //let current_memory_str = memory_options
-                //    .iter()
-                //    .find(|(_, size)| *size == self.memory_size)
-                //    .map(|(name, _)| name.as_str())
-                //    .unwrap_or("Custom");
-
-                //egui::ComboBox::new(egui::Id::new("Select memory size"), "")
-                //    .selected_text(current_memory_str)
-                //    .show_ui(ui, |ui| {
-                //        for (name, size) in memory_options {
-                //            ui.selectable_value(&mut self.memory_size, size, name);
-                //        }
-                //    });
-                //ui.end_row();
+            });
+            egui::Grid::new("model_grid_mem").show(ui, |ui| {
+                ui.label("RAM size:");
+                egui::ComboBox::new(egui::Id::new("ram size"), "")
+                    .selected_text(format_ram(
+                        self.init_args
+                            .ram_size
+                            .unwrap_or_else(|| self.selected_model.ram_size_default()),
+                    ))
+                    .show_ui(ui, |ui| {
+                        for &sz in self.selected_model.ram_size_options() {
+                            ui.selectable_value(
+                                &mut self.init_args.ram_size,
+                                Some(sz),
+                                format_ram(sz),
+                            );
+                        }
+                    });
+                ui.end_row();
             });
 
             ui.separator();
@@ -474,11 +469,37 @@ impl ModelSelectionDialog {
                 });
                 ui.group(|ui| {
                     ui.vertical(|ui| {
+                        ui.horizontal(|ui| {
+                            ui.label("Mouse emulation:");
+                            egui::ComboBox::new(egui::Id::new("mouse_mode"), "")
+                                .selected_text(format!("{}", self.init_args.mouse_mode))
+                                .show_ui(ui, |ui| {
+                                    for v in MouseMode::iter() {
+                                        ui.selectable_value(
+                                            &mut self.init_args.mouse_mode,
+                                            v,
+                                            v.to_string(),
+                                        );
+                                    }
+                                });
+                        });
+                        if matches!(
+                            self.selected_model,
+                            MacModel::Early128K | MacModel::Early512K
+                        ) {
+                            ui.checkbox(
+                                &mut self.early_800k,
+                                "Use 800K floppy drive on Macintosh 128K/512K",
+                            );
+                        }
                         ui.checkbox(&mut self.init_args.audio_disabled, "Disable audio");
-                        ui.checkbox(&mut self.init_args.mouse_disabled, "Disable mouse");
                         ui.checkbox(
                             &mut self.disable_rom_validation,
                             "Disable ROM validation (allow loading any ROM)",
+                        );
+                        ui.checkbox(
+                            &mut self.init_args.start_fastforward,
+                            "Start in fast-forward mode",
                         );
                     });
                 });
@@ -515,7 +536,6 @@ impl ModelSelectionDialog {
                     {
                         self.result = Some(ModelSelectionResult {
                             model: self.selected_model,
-                            memory_size: self.memory_size,
                             main_rom_path: PathBuf::from(&self.main_rom_path),
                             display_rom_path: if self.display_rom_required
                                 && !self.display_rom_path.is_empty()
@@ -540,9 +560,19 @@ impl ModelSelectionDialog {
                                 } else {
                                     None
                                 },
+                                // Deprecated
+                                mouse_disabled: None,
+                                override_fdd_type: if matches!(
+                                    self.selected_model,
+                                    MacModel::Early128K | MacModel::Early512K
+                                ) && self.early_800k
+                                {
+                                    Some(DriveType::GCR800KPWM)
+                                } else {
+                                    None
+                                },
                                 ..self.init_args
                             },
-                            disable_rom_validation: self.disable_rom_validation,
                         });
                         self.open = false;
                     }
@@ -555,9 +585,7 @@ impl ModelSelectionDialog {
         });
 
         if last_model != self.selected_model {
-            self.update_memory_options();
-            self.update_display_rom_requirement();
-            self.do_validate_roms();
+            self.do_model_changed();
         }
 
         if last_validation_disabled != self.disable_rom_validation {

@@ -1,7 +1,8 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 use arpfloat::Float;
 use either::Either;
-use num::FromPrimitive;
+use num_traits::ToPrimitive;
+use strum::IntoEnumIterator;
 
 use crate::bus::{Address, Bus, IrqSource};
 
@@ -30,7 +31,8 @@ where
     /// FSAVE
     pub(in crate::cpu_m68k) fn op_fsave(&mut self, instr: &Instruction) -> Result<()> {
         // Idle state frame
-        self.write_ea(instr, instr.get_op2(), 0x00180018u32)?;
+        // 0x1F = 68881
+        self.write_ea(instr, instr.get_op2(), 0x1F180000u32)?;
 
         Ok(())
     }
@@ -38,7 +40,7 @@ where
     /// FRESTORE
     pub(in crate::cpu_m68k) fn op_frestore(&mut self, instr: &Instruction) -> Result<()> {
         let state = self.read_ea::<Long>(instr, instr.get_op2())?;
-        if state != 0 {
+        if state != 0 && state != 0x1F180000 {
             log::warn!("TODO FPU state frame restored: {:08X}", state);
         }
 
@@ -61,17 +63,33 @@ where
             }
             0b100 => {
                 // From EA to control reg
-                let ctrlreg = FmoveControlReg::from_u8(extword.reg())
-                    .context("Invalid register selection field")?;
-                let value = self.read_ea::<Long>(instr, instr.get_op2())?;
-                self.regs.write(ctrlreg.into(), value);
+                // Supports multiple registers
+                for r in FmoveControlReg::iter() {
+                    if extword.reg() & r.to_u8().unwrap() == 0 {
+                        continue;
+                    }
+                    let value = self.read_ea::<Long>(instr, instr.get_op2())?;
+                    self.regs.write(r.into(), value);
+
+                    // Next read from its own, re-calculated address
+                    self.ea_commit();
+                    self.step_ea_addr = None;
+                }
             }
             0b101 => {
                 // From control reg to EA
-                let ctrlreg = FmoveControlReg::from_u8(extword.reg())
-                    .context("Invalid register selection field")?;
-                let value = self.regs.read::<Long>(ctrlreg.into());
-                self.write_ea(instr, instr.get_op2(), value)?;
+                // Supports multiple registers
+                for r in FmoveControlReg::iter() {
+                    if extword.reg() & r.to_u8().unwrap() == 0 {
+                        continue;
+                    }
+                    let value = self.regs.read::<Long>(r.into());
+                    self.write_ea(instr, instr.get_op2(), value)?;
+
+                    // Next write to its own, re-calculated address
+                    self.ea_commit();
+                    self.step_ea_addr = None;
+                }
             }
             0b010 => {
                 // EA to FPU register, with ALU op
@@ -98,6 +116,10 @@ where
                             self.read_ea::<Word>(instr, instr.get_op2())? as i16 as i64,
                         )
                     }
+                    0b101 if instr.get_addr_mode()? == AddressingMode::Immediate => {
+                        // Double-precision real (immediate)
+                        self.read_fpu_double_imm()?
+                    }
                     0b101 => {
                         // Double-precision real
                         let ea = self.calc_ea_addr_sz::<DOUBLE_SIZE>(
@@ -107,6 +129,14 @@ where
                         )?;
                         self.read_fpu_double(ea)?
                     }
+                    0b001 if instr.get_addr_mode()? == AddressingMode::DataRegister => {
+                        // Single-precision real (Dn)
+                        self.read_fpu_single_dn(instr.get_op2())?
+                    }
+                    0b001 if instr.get_addr_mode()? == AddressingMode::Immediate => {
+                        // Single-precision real (immediate)
+                        self.read_fpu_single_imm()?
+                    }
                     0b001 => {
                         // Single-precision real
                         let ea = self.calc_ea_addr_sz::<SINGLE_SIZE>(
@@ -115,6 +145,10 @@ where
                             instr.get_op2(),
                         )?;
                         self.read_fpu_single(ea)?
+                    }
+                    0b010 if instr.get_addr_mode()? == AddressingMode::Immediate => {
+                        // Extended-precision real (immediate)
+                        self.read_fpu_extended_imm()?
                     }
                     0b010 => {
                         // Extended-precision real
@@ -327,6 +361,16 @@ where
                         self.regs.fpu.fpsr.exs_mut().set_inex1(inex);
                         self.regs.write_d(dn, out as Word);
                     }
+                    0b001 => {
+                        // Single precision real
+                        // TODO flags?
+                        self.regs.fpu.fpsr.exs_mut().set_ovfl(false);
+                        self.regs.fpu.fpsr.exs_mut().set_unfl(false);
+                        self.regs.fpu.fpsr.exs_mut().set_inex2(false);
+                        self.regs.fpu.fpsr.exs_mut().set_inex1(false);
+                        self.regs
+                            .write_d(dn, self.regs.fpu.fp[fpx].as_f32().to_bits());
+                    }
                     _ => {
                         bail!(
                             "Reg to Dn unimplemented dest format {:03b}",
@@ -370,20 +414,15 @@ where
         match mode {
             0b00 | 0b10 => {
                 // Static register list
-
-                if mode == 0b00 && instr.get_addr_mode()? != AddressingMode::IndirectPreDec {
-                    bail!("Contradicting modes (pre-dec vs {0:2b})", mode);
-                }
-                if mode == 0b10 && instr.get_addr_mode()? != AddressingMode::IndirectPostInc {
-                    bail!("Contradicting modes (post-inc vs {0:2b})", mode);
-                }
+                // For predecrement mode, iterate in reverse order
+                let reverse_mode = mode & 0b10 == 0;
 
                 if !extword.movem_dir() {
                     // EA to registers
-                    self.op_fmovem_ea_to_regs(instr, reglist)?;
+                    self.op_fmovem_ea_to_regs(instr, reglist, reverse_mode)?;
                 } else {
                     // Registers to EA
-                    self.op_fmovem_regs_to_ea(instr, reglist)?;
+                    self.op_fmovem_regs_to_ea(instr, reglist, reverse_mode)?;
                 }
             }
             0b01 | 0b11 => {
@@ -399,11 +438,13 @@ where
     }
 
     /// FMOVEM registers to EA
-    fn op_fmovem_regs_to_ea(&mut self, instr: &Instruction, reglist: u8) -> Result<()> {
+    fn op_fmovem_regs_to_ea(
+        &mut self,
+        instr: &Instruction,
+        reglist: u8,
+        reverse_order: bool,
+    ) -> Result<()> {
         let mut addr = self.calc_ea_addr_no_mod::<Address>(instr, instr.get_op2())?;
-
-        // For predecrement mode, iterate in reverse order
-        let reverse_order = instr.get_addr_mode()? == AddressingMode::IndirectPreDec;
 
         let range = if !reverse_order {
             Either::Left((0..8).rev())
@@ -439,11 +480,14 @@ where
     }
 
     /// FMOVEM EA to registers  
-    fn op_fmovem_ea_to_regs(&mut self, instr: &Instruction, reglist: u8) -> Result<()> {
+    fn op_fmovem_ea_to_regs(
+        &mut self,
+        instr: &Instruction,
+        reglist: u8,
+        reverse_order: bool,
+    ) -> Result<()> {
         let mut addr = self.calc_ea_addr_no_mod::<Address>(instr, instr.get_op2())?;
 
-        // For predecrement mode, iterate in reverse order
-        let reverse_order = instr.get_addr_mode()? == AddressingMode::IndirectPreDec;
         let range = if !reverse_order {
             Either::Left((0..8).rev())
         } else {

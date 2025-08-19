@@ -4,6 +4,7 @@ Snow supports 2 or 3 floppy drives, depending on the model you are emulating.
 The following drives are available, per model:
 
  * Macintosh 128K/512K: 2 400K drives
+ * Macintosh 512Ke: 2 800K drives
  * Macintosh Plus: 2 800K drives
  * Macintosh SE (non-FDHD): 3 800K drives
  * Macintosh SE (FDHD): 3 1.44MB SuperDrives
@@ -26,6 +27,7 @@ mounted as write-protected.
 
 Snow supports the following image file formats for reading:
 * Apple DiskCopy 4.2 (sector-based)
+* Apple Disk Archive / Retrieval Tool ('DART') (sector-based)
 * Applesauce A2R 2.x and 3.x (raw flux)
 * Applesauce MOOF (bitstream and flux)
 * PCE Flux Image (PFI, flux)

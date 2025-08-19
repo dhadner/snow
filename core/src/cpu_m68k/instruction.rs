@@ -104,6 +104,9 @@ pub enum InstructionMnemonic {
     BTST_imm,
     // BRA is actually just Bcc with cond = True
     BSR,
+    CAS_b,
+    CAS_l,
+    CAS_w,
     CHK_l,
     CHK_w,
     CLR_l,
@@ -171,6 +174,7 @@ pub enum InstructionMnemonic {
     MOVEC_l,
     MOVEP_w,
     MOVEP_l,
+    MOVEfromCCR,
     MOVEfromSR,
     MOVEfromUSP,
     MOVEtoCCR,
@@ -248,6 +252,7 @@ pub enum InstructionMnemonic {
     FOP_000,
     FBcc_w,
     FBcc_l,
+    FScc_b,
 }
 
 /// Addressing modes
@@ -729,6 +734,7 @@ impl Instruction {
         (M68000, 0b1110_0001_1001_1000, 0b1111_0001_1101_1000, InstructionMnemonic::ROL_l),
 
         // M68010+ instructions
+        (M68010, 0b0100_0010_1100_0000, 0b1111_1111_1100_0000, InstructionMnemonic::MOVEfromCCR),
         (M68010, 0b0100_1110_0111_1010, 0b1111_1111_1111_1110, InstructionMnemonic::MOVEC_l),
         (M68010, 0b0100_1110_0111_0100, 0b1111_1111_1111_1111, InstructionMnemonic::RTD),
 
@@ -744,6 +750,9 @@ impl Instruction {
         (M68020, 0b0100_1100_0000_0000, 0b1111_1111_1100_0000, InstructionMnemonic::MULx_l),
         (M68020, 0b0100_1100_0100_0000, 0b1111_1111_1100_0000, InstructionMnemonic::DIVx_l),
         (M68020, 0b0100_0001_0000_0000, 0b1111_0001_1100_0000, InstructionMnemonic::CHK_l),
+        (M68020, 0b0000_1010_1100_0000, 0b1111_1111_1100_0000, InstructionMnemonic::CAS_b),
+        (M68020, 0b0000_1100_1100_0000, 0b1111_1111_1100_0000, InstructionMnemonic::CAS_w),
+        (M68020, 0b0000_1110_1100_0000, 0b1111_1111_1100_0000, InstructionMnemonic::CAS_l),
 
         // M68020+ FPU instructions
         (M68020, 0b1111_0011_0000_0000, 0b1111_1111_1100_0000, InstructionMnemonic::FSAVE),
@@ -752,6 +761,7 @@ impl Instruction {
         (M68020, 0b1111_0010_0000_0000, 0b1111_1111_1100_0000, InstructionMnemonic::FOP_000),
         (M68020, 0b1111_0010_1100_0000, 0b1111_1111_1100_0000, InstructionMnemonic::FBcc_l),
         (M68020, 0b1111_0010_1000_0000, 0b1111_1111_1100_0000, InstructionMnemonic::FBcc_w),
+        (M68020, 0b1111_0010_0100_0000, 0b1111_1111_1100_0000, InstructionMnemonic::FScc_b),
         (M68000, 0b1111_0000_0000_0000, 0b1111_0000_0000_0000, InstructionMnemonic::LINEF),
     ];
 
@@ -981,6 +991,7 @@ impl Instruction {
             | InstructionMnemonic::ANDI_l
             | InstructionMnemonic::ASL_l
             | InstructionMnemonic::ASR_l
+            | InstructionMnemonic::CAS_l
             | InstructionMnemonic::CHK_l
             | InstructionMnemonic::CLR_l
             | InstructionMnemonic::CMP_l
@@ -1026,6 +1037,7 @@ impl Instruction {
             | InstructionMnemonic::ANDI_w
             | InstructionMnemonic::ASL_w
             | InstructionMnemonic::ASR_w
+            | InstructionMnemonic::CAS_w
             | InstructionMnemonic::CLR_w
             | InstructionMnemonic::CMP_w
             | InstructionMnemonic::CMPA_w
@@ -1045,6 +1057,7 @@ impl Instruction {
             | InstructionMnemonic::MOVEP_w
             | InstructionMnemonic::MOVEM_mem_w
             | InstructionMnemonic::MOVEM_reg_w
+            | InstructionMnemonic::MOVEfromCCR
             | InstructionMnemonic::MULU_w
             | InstructionMnemonic::MULS_w
             | InstructionMnemonic::NEG_w
@@ -1070,6 +1083,7 @@ impl Instruction {
             | InstructionMnemonic::ANDI_b
             | InstructionMnemonic::ASL_b
             | InstructionMnemonic::ASR_b
+            | InstructionMnemonic::CAS_b
             | InstructionMnemonic::CLR_b
             | InstructionMnemonic::CMP_b
             | InstructionMnemonic::CMPI_b
@@ -1093,16 +1107,16 @@ impl Instruction {
             | InstructionMnemonic::SUBI_b
             | InstructionMnemonic::SUBQ_b
             | InstructionMnemonic::SUBX_b
-            | InstructionMnemonic::TST_b => InstructionSize::Byte,
-
-            InstructionMnemonic::ABCD | InstructionMnemonic::NBCD | InstructionMnemonic::SBCD => {
-                InstructionSize::Byte
-            }
-
-            InstructionMnemonic::ANDI_ccr
+            | InstructionMnemonic::TST_b
+            | InstructionMnemonic::ABCD
+            | InstructionMnemonic::NBCD
+            | InstructionMnemonic::SBCD
+            | InstructionMnemonic::FScc_b
+            | InstructionMnemonic::ANDI_ccr
             | InstructionMnemonic::EORI_ccr
             | InstructionMnemonic::ORI_ccr
             | InstructionMnemonic::MOVEtoCCR => InstructionSize::Byte,
+
             InstructionMnemonic::ANDI_sr
             | InstructionMnemonic::ORI_sr
             | InstructionMnemonic::EORI_sr

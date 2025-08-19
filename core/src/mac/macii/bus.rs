@@ -5,6 +5,7 @@ use super::via2::Via2;
 use crate::bus::{Address, Bus, BusMember, BusResult, InspectableBus, IrqSource};
 use crate::debuggable::Debuggable;
 use crate::emulator::comm::EmulatorSpeed;
+use crate::emulator::MouseMode;
 use crate::mac::asc::Asc;
 use crate::mac::scc::Scc;
 use crate::mac::scsi::controller::ScsiController;
@@ -70,8 +71,8 @@ pub struct MacIIBus<TRenderer: Renderer> {
     /// NuBus cards (base address: $9)
     nubus_devices: [Option<Mdc12<TRenderer>>; 6],
 
-    /// Mouse enabled
-    mouse_enabled: bool,
+    /// Mouse mode
+    mouse_mode: MouseMode,
 }
 
 impl<TRenderer> MacIIBus<TRenderer>
@@ -89,6 +90,7 @@ where
     /// CrsrNew address
     const ADDR_CRSRNEW: Address = 0x08CE;
 
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         model: MacModel,
         rom: &[u8],
@@ -96,9 +98,10 @@ where
         extension_rom: Option<&[u8]>,
         mut renderers: Vec<TRenderer>,
         monitor: MacMonitor,
-        mouse_enabled: bool,
+        mouse_mode: MouseMode,
+        ram_size: Option<usize>,
     ) -> Self {
-        let ram_size = model.ram_size();
+        let ram_size = ram_size.unwrap_or_else(|| model.ram_size_default());
 
         if extension_rom.is_some() {
             log::info!("Extension ROM present");
@@ -136,7 +139,7 @@ where
             nubus_devices: core::array::from_fn(|_| {
                 renderers.pop().map(|r| Mdc12::new(mdcrom, r, monitor))
             }),
-            mouse_enabled,
+            mouse_mode,
         };
 
         // Disable memory test
@@ -320,7 +323,7 @@ where
 
     /// Updates the mouse position (relative coordinates) and button state
     pub fn mouse_update_rel(&mut self, relx: i16, rely: i16, _button: Option<bool>) {
-        if !self.mouse_enabled {
+        if self.mouse_mode != MouseMode::Absolute {
             return;
         }
 
@@ -356,7 +359,7 @@ where
 
     /// Updates the mouse position (absolute coordinates)
     pub fn mouse_update_abs(&mut self, x: u16, y: u16) {
-        if !self.mouse_enabled {
+        if self.mouse_mode != MouseMode::Absolute {
             return;
         }
 
@@ -412,7 +415,9 @@ where
             0xC0_0000..=0xCF_FFFF => 0xFC00_0000 | (addr & 0xF_FFFF),
             0xD0_0000..=0xDF_FFFF => 0xFD00_0000 | (addr & 0xF_FFFF),
             0xE0_0000..=0xEF_FFFF => 0xFE00_0000 | (addr & 0xF_FFFF),
-            0xF0_0000..=0xFF_FFFF => 0x5000_0000 | (addr & 0xF_FFFF),
+            0xF0_0000..=0xF7_FFFF => 0x5000_0000 | (addr & 0xF_FFFF),
+            0xF8_0000..=0xF9_FFFF => 0x5800_0000 | (addr & 0x1_FFFF),
+            0xFA_0000..=0xFF_FFFF => 0x5000_0000 | (addr & 0xF_FFFF),
             _ => unreachable!(),
         }
     }
@@ -508,11 +513,15 @@ where
             if let Some((addr, value)) = self.model.disable_memtest() {
                 self.write_ram(addr, value);
             }
+
+            self.ram_dirty
+                .extend(0..(self.ram.len() / RAM_DIRTY_PAGESIZE));
         }
 
-        // Take the ADB transceiver out because that contains crossbeam channels..
-        let oldadb = std::mem::replace(&mut self.via1, Via::new(self.model)).adb;
-        let _ = std::mem::replace(&mut self.via1.adb, oldadb);
+        // Keep the RTC and ADB for PRAM and event channels
+        let Via { adb, rtc, .. } = std::mem::replace(&mut self.via1, Via::new(self.model));
+        self.via1.adb = adb;
+        self.via1.rtc = rtc;
 
         self.scc = Scc::new();
         self.via2 = Via2::new(self.model);

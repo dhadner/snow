@@ -5,7 +5,7 @@ use crate::settings::AppSettings;
 use crate::uniform::{UniformAction, UNIFORM_ACTION};
 use crate::widgets::breakpoints::BreakpointsWidget;
 use crate::widgets::disassembly::Disassembly;
-use crate::widgets::framebuffer::FramebufferWidget;
+use crate::widgets::framebuffer::{FramebufferWidget, ScalingAlgorithm};
 use crate::widgets::instruction_history::InstructionHistoryWidget;
 use crate::widgets::memory::MemoryViewerWidget;
 use crate::widgets::peripherals::PeripheralsWidget;
@@ -35,6 +35,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::{env, fs};
+use strum::IntoEnumIterator;
 
 macro_rules! persistent_window_s {
     ($gui:expr, $title:expr, $default_size:expr) => {{
@@ -194,7 +195,7 @@ impl SnowGui {
                 .join(", ")
         );
         let hdd_filter_str = "HDD images (*.img, *.hda)";
-        let cdrom_filter_str = "CD-ROM images (*.iso)";
+        let cdrom_filter_str = "CD-ROM images (*.iso, *.toast)";
 
         let mut app = Self {
             workspace: Default::default(),
@@ -239,6 +240,9 @@ impl SnowGui {
                         p.extension()
                             .unwrap_or_default()
                             .eq_ignore_ascii_case("iso")
+                            || p.extension()
+                                .unwrap_or_default()
+                                .eq_ignore_ascii_case("toast")
                     }),
                 )
                 .default_file_filter(cdrom_filter_str)
@@ -419,6 +423,9 @@ impl SnowGui {
                             ui.close_menu();
                         }
                     }
+                    if self.settings.recent_workspaces.is_empty() {
+                        ui.weak("No recent workspaces");
+                    }
                 });
                 ui.separator();
                 if ui.button("Exit").clicked() {
@@ -428,7 +435,10 @@ impl SnowGui {
             ui.menu_button("Machine", |ui| {
                 ui.set_min_width(Self::SUBMENU_WIDTH);
                 if ui.button("Load ROM").clicked() {
-                    self.model_dialog.open();
+                    self.model_dialog.open(
+                        self.settings.get_last_roms(),
+                        self.settings.get_last_display_roms(),
+                    );
                     ui.close_menu();
                 }
                 if self.emu.is_initialized() {
@@ -562,6 +572,16 @@ impl SnowGui {
                             ctx.set_zoom_factor(z);
                             ui.close_menu();
                         }
+                    }
+                });
+                ui.menu_button("Scaling algorithm", |ui| {
+                    ui.set_min_width(Self::SUBMENU_WIDTH);
+                    for algorithm in ScalingAlgorithm::iter() {
+                        ui.radio_value(
+                            &mut self.framebuffer.scaling_algorithm,
+                            algorithm,
+                            format!("{}", algorithm),
+                        );
                     }
                 });
                 ui.add(
@@ -748,6 +768,22 @@ impl SnowGui {
                                     self.cdrom_dialog.pick_file();
                                     ui.close_menu();
                                 }
+                                ui.menu_button("Load recent image", |ui| {
+                                    ui.set_min_width(Self::SUBMENU_WIDTH);
+                                    for (idx, path, display_name) in
+                                        self.settings.get_recent_cd_images_for_display()
+                                    {
+                                        if ui.button(format!("{}: {}", idx, display_name)).clicked()
+                                        {
+                                            self.emu.scsi_load_cdrom(id, &path);
+                                            self.settings.add_recent_cd_image(&path);
+                                            ui.close_menu();
+                                        }
+                                    }
+                                    if self.settings.recent_cd_images.is_empty() {
+                                        ui.weak("No recent images");
+                                    }
+                                });
                                 if show_detach {
                                     ui.separator();
                                     if ui.button("Detach CD-ROM drive").clicked() {
@@ -835,6 +871,21 @@ impl SnowGui {
                         self.floppy_dialog.pick_file();
                         ui.close_menu();
                     }
+                    ui.menu_button("Load recent image", |ui| {
+                        ui.set_min_width(Self::SUBMENU_WIDTH);
+                        for (idx, path, display_name) in
+                            self.settings.get_recent_floppy_images_for_display()
+                        {
+                            if ui.button(format!("{}: {}", idx, display_name)).clicked() {
+                                self.emu.load_floppy(i, &path, false);
+                                self.settings.add_recent_floppy_image(&path);
+                                ui.close_menu();
+                            }
+                        }
+                        if self.settings.recent_floppy_images.is_empty() {
+                            ui.weak("No recent images");
+                        }
+                    });
                     if ui
                         .add_enabled(
                             self.emu.last_images[i].borrow().is_some(),
@@ -891,7 +942,10 @@ impl SnowGui {
                 .on_hover_text("Load ROM...")
                 .clicked()
             {
-                self.model_dialog.open();
+                self.model_dialog.open(
+                    self.settings.get_last_roms(),
+                    self.settings.get_last_display_roms(),
+                );
             }
             if self.emu.is_initialized() {
                 ui.separator();
@@ -1107,6 +1161,15 @@ impl SnowGui {
             Ok(p) => self.framebuffer.connect_receiver(p.frame_receiver),
             Err(e) => self.show_error(&format!("Failed to load ROM file: {}", e)),
         }
+
+        // Save to last used ROMs
+        if let Some(model) = model {
+            self.settings.set_last_rom(model, path);
+            if let Some(dr_path) = display_rom_path {
+                self.settings.set_last_display_rom(model, dr_path);
+            }
+        }
+
         self.workspace.set_rom_path(path);
         self.workspace.set_display_card_rom_path(display_rom_path);
         self.workspace.set_extension_rom_path(extension_rom_path);
@@ -1136,6 +1199,7 @@ impl SnowGui {
         // Re-initialize stuff from newly loaded workspace
         self.load_windows = true;
         self.framebuffer.scale = self.workspace.viewport_scale;
+        self.framebuffer.scaling_algorithm = self.workspace.scaling_algorithm;
         if let Some(rompath) = self.workspace.get_rom_path() {
             let display_rom_path = self.workspace.get_display_card_rom_path();
             let extension_rom_path = self.workspace.get_extension_rom_path();
@@ -1160,6 +1224,7 @@ impl SnowGui {
 
     fn save_workspace(&mut self, path: &Path) {
         self.workspace.viewport_scale = self.framebuffer.scale;
+        self.workspace.scaling_algorithm = self.framebuffer.scaling_algorithm;
         if let Some(targets) = self.emu.get_scsi_target_status().as_ref() {
             for (i, d) in targets.iter().enumerate() {
                 self.workspace.set_scsi_target(i, d.clone());
@@ -1497,6 +1562,7 @@ impl eframe::App for SnowGui {
                         unreachable!()
                     };
                     self.emu.load_floppy(driveidx, &path, self.floppy_dialog_wp);
+                    self.settings.add_recent_floppy_image(&path);
                 }
                 DialogMode::SaveFile => {
                     if !path
@@ -1538,6 +1604,7 @@ impl eframe::App for SnowGui {
         self.cdrom_dialog.update(ctx);
         if let Some(path) = self.cdrom_dialog.take_picked() {
             self.emu.scsi_load_cdrom(self.cdrom_dialog_idx, &path);
+            self.settings.add_recent_cd_image(&path);
         }
         self.ui_active &= self.cdrom_dialog.state() != egui_file_dialog::DialogState::Open;
 
@@ -1614,7 +1681,7 @@ impl eframe::App for SnowGui {
             }
 
             // Framebuffer display
-            ui.vertical_centered(|ui| {
+            let response = ui.vertical_centered(|ui| {
                 // Align framebuffer vertically
                 if self.in_fullscreen {
                     const GUEST_ASPECT_RATIO: f32 = 4.0 / 3.0;
@@ -1636,43 +1703,50 @@ impl eframe::App for SnowGui {
                     }
                 }
 
-                let response = self.framebuffer.draw(ui, self.in_fullscreen);
+                self.framebuffer.draw(ui, self.in_fullscreen);
                 if self.in_fullscreen {
-                    response.context_menu(|ui| {
-                        ui.set_min_width(Self::SUBMENU_WIDTH);
-                        if ui.button("Exit fullscreen").clicked() {
-                            self.exit_fullscreen(ctx);
-                            ui.close_menu();
-                        }
-                        if ui.button("Take screenshot").clicked() {
-                            self.screenshot();
-                            ui.close_menu();
-                        }
-                        ui.separator();
-                        self.draw_menu_floppies(ui);
-                        let targets = self.emu.get_scsi_target_status().map(|d| d.to_owned());
-                        if let Some(targets) = targets {
-                            for (id, target) in targets
-                                .iter()
-                                .enumerate()
-                                .filter_map(|(i, t)| t.as_ref().map(|t| (i, t)))
-                                .filter(|(_, t)| t.target_type == ScsiTargetType::Cdrom)
-                            {
-                                self.draw_scsi_target_menu(ui, id, Some(target), false);
-                            }
-                        }
-                        ui.separator();
-                        let mut ff = self.emu.is_fastforward();
-                        if ui.checkbox(&mut ff, "Fast-forward").clicked() {
-                            self.emu.toggle_fastforward();
-                            ui.close_menu();
-                        }
-                        if ui.button("Reset machine").clicked() {
-                            self.emu.reset();
-                        }
-                    });
+                    // To fill the screen with hitbox for the context menu
+                    ui.allocate_space(ui.available_size());
                 }
             });
+            if self.in_fullscreen {
+                response.response.context_menu(|ui| {
+                    // Show the mouse cursor so the user can interact with the menu
+                    self.ui_active = false;
+
+                    ui.set_min_width(Self::SUBMENU_WIDTH);
+                    if ui.button("Exit fullscreen").clicked() {
+                        self.exit_fullscreen(ctx);
+                        ui.close_menu();
+                    }
+                    if ui.button("Take screenshot").clicked() {
+                        self.screenshot();
+                        ui.close_menu();
+                    }
+                    ui.separator();
+                    self.draw_menu_floppies(ui);
+                    let targets = self.emu.get_scsi_target_status().map(|d| d.to_owned());
+                    if let Some(targets) = targets {
+                        for (id, target) in targets
+                            .iter()
+                            .enumerate()
+                            .filter_map(|(i, t)| t.as_ref().map(|t| (i, t)))
+                            .filter(|(_, t)| t.target_type == ScsiTargetType::Cdrom)
+                        {
+                            self.draw_scsi_target_menu(ui, id, Some(target), false);
+                        }
+                    }
+                    ui.separator();
+                    let mut ff = self.emu.is_fastforward();
+                    if ui.checkbox(&mut ff, "Fast-forward").clicked() {
+                        self.emu.toggle_fastforward();
+                        ui.close_menu();
+                    }
+                    if ui.button("Reset machine").clicked() {
+                        self.emu.reset();
+                    }
+                });
+            }
 
             // Draw snowflakes behind the dialogs
             self.draw_snowflakes(ui);
@@ -1809,7 +1883,11 @@ impl eframe::App for SnowGui {
         // Hide mouse over framebuffer
         // When using 'on_hover_and_drag_cursor' on the widget, the cursor still shows when the
         // mouse button is down, which is why this is done here.
-        if self.ui_active && self.emu.is_running() && self.get_machine_mouse_pos(ctx).is_some() {
+        if self.ui_active
+            && self.emu.is_running()
+            && (self.get_machine_mouse_pos(ctx).is_some()
+                || (self.in_fullscreen && self.emu.is_mouse_relative()))
+        {
             ctx.set_cursor_icon(egui::CursorIcon::None);
         }
 
@@ -1829,15 +1907,44 @@ impl eframe::App for SnowGui {
                     pressed,
                     ..
                 } => {
-                    if self.get_machine_mouse_pos(ctx).is_some() {
+                    if self.get_machine_mouse_pos(ctx).is_some()
+                        || (self.in_fullscreen && self.emu.is_mouse_relative())
+                    {
                         // Cursor is within framebuffer view area
                         self.emu.update_mouse_button(*pressed);
                     }
                 }
-                egui::Event::MouseMoved(_) | egui::Event::PointerMoved(_) => {
-                    if let Some(mouse_pos) = self.get_machine_mouse_pos(ctx) {
+                egui::Event::MouseMoved(rel_p) => {
+                    // Event with relative motion, but 'optional' according to egui docs
+                    let relpos = if self.in_fullscreen {
+                        // In fullscreen mode, do not scale the mouse as the pointer cannot leave
+                        // the viewport.
+                        egui::Pos2 {
+                            x: rel_p.x,
+                            y: rel_p.y,
+                        }
+                    } else {
+                        egui::Pos2 {
+                            x: (rel_p.x / self.framebuffer.scale) * 2.0,
+                            y: (rel_p.y / self.framebuffer.scale) * 2.0,
+                        }
+                    };
+
+                    if let Some(abs_p) = self.get_machine_mouse_pos(ctx) {
                         // Cursor is within framebuffer view area
-                        self.emu.update_mouse(mouse_pos);
+                        self.emu.update_mouse(Some(&abs_p), &relpos);
+                    } else if self.in_fullscreen {
+                        // Always send relative motion for the entire screen in
+                        // fullscreen mode
+                        self.emu.update_mouse(None, &relpos);
+                    }
+                }
+                egui::Event::PointerMoved(_) => {
+                    // No relative motion in this event
+                    if let Some(abs_p) = self.get_machine_mouse_pos(ctx) {
+                        // Cursor is within framebuffer view area
+                        // No relative motion in this event
+                        self.emu.update_mouse(Some(&abs_p), &egui::Pos2::default());
                     }
                 }
                 _ => (),
