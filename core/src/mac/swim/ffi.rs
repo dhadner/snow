@@ -89,5 +89,6 @@ pub unsafe extern "C" fn floppy_drive_get_type(ptr: *const FFIFloppyDrive) -> FF
         DriveType::GCR400K => FFIDriveType::GCR400K,
         DriveType::GCR800K => FFIDriveType::GCR800K,
         DriveType::SuperDrive => FFIDriveType::SuperDrive,
+        DriveType::GCR800KPWM => todo!(),
     }
 }
