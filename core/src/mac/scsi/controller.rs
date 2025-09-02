@@ -1,4 +1,4 @@
-//! NCR5380 SCSI controller
+﻿//! NCR5380 SCSI controller
 
 use std::collections::VecDeque;
 use std::path::Path;
@@ -327,6 +327,53 @@ impl ScsiController {
         }
     }
 
+    /// Purpose
+    ///
+    /// cmd_run is the central SCSI command dispatcher for the NCR5380 SCSI controller.
+    /// It takes a completed SCSI Command Descriptor Block (CDB) and any optional outgoing data, sends it to the currently 
+    /// selected SCSI target device, and then transitions the controller to the appropriate bus phase based on the result.
+    /// ---
+    /// Step-by-Step Breakdown
+    /// 1.	Get the Command and Target
+    /// •	let cmd = &self.cmdbuf;
+    /// Uses the current command buffer (the CDB bytes assembled from the bus).
+    /// •	let Some(target) = self.targets[self.sel_id].as_mut() else { ... }
+    /// Gets the currently selected SCSI target device (e.g., hard disk) by SCSI ID.
+    /// If no device is attached, returns an error.
+    /// 2.	Dispatch the Command
+    /// •	target.cmd(cmd, outdata)
+    /// Calls the target’s cmd method, passing the command and any outgoing data (for write operations).
+    /// 3.	Handle the Result
+    /// •	The result is a ScsiCmdResult, which can be:
+    /// •	Status(s) — The command completed and returns a status byte (e.g., GOOD, CHECK CONDITION).
+    /// •	DataIn(data) — The command returns data to the initiator (e.g., a read or inquiry).
+    /// •	DataOut(len) — The command expects the initiator to send data (e.g., a write or mode select).
+    /// •	The function matches on the result and:
+    /// •	Status:
+    /// •	Sets the controller’s status register.
+    /// •	Transitions to the Status phase.
+    /// •	DataIn:
+    /// •	Sets status to GOOD.
+    /// •	Loads the returned data into the response buffer.
+    /// •	Transitions to the DataIn phase.
+    /// •	DataOut:
+    /// •	Sets the expected data out length.
+    /// •	Clears the response buffer.
+    /// •	Transitions to the DataOut phase.
+    /// •	Error:
+    /// •	Returns the error.
+    /// 4.	Return Success
+    /// •	If all goes well, returns Ok(()).
+    /// ---
+    /// Why It Matters
+    /// This function is the bridge between the SCSI controller and the attached devices.
+    /// It ensures that after a command is sent, the controller’s bus phase and internal buffers are set up correctly for 
+    /// the next step in the SCSI protocol (data transfer, status, etc.).
+    /// ---
+    /// Summary
+    /// cmd_run sends a SCSI command to the selected device, processes the result, and sets up the controller’s state 
+    /// and bus phase for the next operation, handling all standard SCSI command outcomes.
+    /// 
     fn cmd_run(&mut self, outdata: Option<&[u8]>) -> Result<()> {
         let cmd = &self.cmdbuf;
         let Some(target) = self.targets[self.sel_id].as_mut() else {
@@ -355,6 +402,40 @@ impl ScsiController {
         Ok(())
     }
 
+    /// Purpose
+    /// 
+    /// This function determines whether the SCSI controller should assert the DMA request (DRQ) signal, which indicates 
+    /// to the host (e.g., the Mac SE) that a DMA transfer is possible or in progress.
+    /// 
+    /// How It Works
+    /// •	self.reg_mr.dma_mode()
+    ///     Checks if the DMA mode bit is set in the SCSI controller’s Mode Register (MR). This means the controller is 
+    ///     configured to use DMA (Direct Memory Access) for data transfers.
+    /// •	matches!(self.busphase, ... )
+    ///     Checks if the current SCSI bus phase is one of:
+    ///     •	DataIn (target → initiator, i.e., reading data from the device)
+    ///     •	DataOut (initiator → target, i.e., writing data to the device)
+    ///     •	Status (status byte phase after data transfer)
+    /// •	Logical AND (&&)
+    ///     Both conditions must be true for get_drq() to return true:
+    ///     1.	DMA mode is enabled.
+    ///     2.	The bus is in a phase where DMA is valid (DataIn, DataOut, or Status).
+    /// 
+    /// What It Means
+    /// •	If DMA mode is enabled and the bus is in a data transfer or status phase, the controller signals that 
+    ///     a DMA transfer can occur.
+    /// •	Otherwise, DMA is not requested.
+    /// 
+    /// Why It Matters
+    ///     This logic is used to set the DMA request bit in the SCSI controller’s status register (BSR). The Mac’s 
+    ///     SCSI driver polls this bit to know when it can transfer data efficiently using DMA, rather than slower, 
+    ///     byte-by-byte PIO (Programmed I/O).
+    /// ---
+    /// Summary
+    /// get_drq() returns true if the SCSI controller is in DMA mode and the bus is in a phase where DMA transfers 
+    /// are allowed (DataIn, DataOut, or Status). This is used to control the DMA request signal for efficient data 
+    /// movement between the Mac and the SCSI device.
+    /// 
     pub fn get_drq(&self) -> bool {
         self.reg_mr.dma_mode()
             && matches!(
