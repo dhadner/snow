@@ -1,6 +1,6 @@
 [package]
 name = "snow_frontend_egui"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
 build = "build.rs"
 
@@ -23,6 +23,7 @@ egui_extras = "0.30.0"
 egui_logger = "0.6.2"
 egui_material_icons = "0.2.0"
 env_logger = "0.11.6"
+hadris-iso = { git = "https://github.com/hxyulin/hadris", rev = "8bf2df25d7bfb2aab0b068bfa13d6ad1a244df5e" }
 hex = "0.4.3"
 hex-literal = "0.4.1"
 itertools = "0.14.0"
@@ -36,9 +37,14 @@ rand = "0.9.1"
 serde = { version = "1.0.218", features = ["derive"] }
 serde_json = "1.0.139"
 sha2 = "0.10.8"
-snow_core = { version = "0.1.0", path = "../core", features = ["mmap"] }
-snow_floppy = { version = "0.1.0", path = "../floppy" }
+snow_core = { version = "1.0.0", path = "../core", features = ["mmap"] }
+snow_floppy = { version = "1.0.0", path = "../floppy" }
 strum = "0.26.3"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# https://github.com/twvd/snow/issues/106
+objc2-app-kit = "0.3.1"
+objc2-foundation = "0.3.1"
 
 [target.'cfg(target_os = "freebsd")'.dependencies]
 # https://github.com/twvd/snow/issues/49
