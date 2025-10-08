@@ -5,8 +5,9 @@ use std::path::Path;
 use anyhow::Result;
 
 use crate::mac::scsi::{
-    ScsiCmdResult, ASC_INVALID_FIELD_IN_CDB, ASC_MEDIUM_NOT_PRESENT, CC_KEY_ILLEGAL_REQUEST,
-    CC_KEY_MEDIUM_ERROR, STATUS_CHECK_CONDITION, STATUS_GOOD,
+    ScsiCmdResult, ASC_INVALID_FIELD_IN_CDB, ASC_LOGICAL_BLOCK_ADDRESS_OUT_OF_RANGE,
+    ASC_MEDIUM_NOT_PRESENT, CC_KEY_ILLEGAL_REQUEST, CC_KEY_MEDIUM_ERROR, STATUS_CHECK_CONDITION,
+    STATUS_GOOD,
 };
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -22,7 +23,11 @@ pub enum ScsiTargetEvent {
 }
 
 /// An abstraction of a generic SCSI target
-pub(crate) trait ScsiTarget {
+#[typetag::serde(tag = "type")]
+pub(crate) trait ScsiTarget: Send {
+    #[cfg(feature = "savestates")]
+    fn after_deserialize(&mut self, imgfn: &Path) -> Result<()>;
+
     fn set_cc(&mut self, code: u8, asc: u16);
     fn set_blocksize(&mut self, blocksize: usize) -> bool;
     fn take_event(&mut self) -> Option<ScsiTargetEvent>;
@@ -45,6 +50,8 @@ pub(crate) trait ScsiTarget {
     fn write(&mut self, block_offset: usize, data: &[u8]);
     fn image_fn(&self) -> Option<&Path>;
     fn load_media(&mut self, path: &Path) -> Result<()>;
+    fn branch_media(&mut self, path: &Path) -> Result<()>;
+    fn media(&self) -> Option<&[u8]>;
 
     /// Device-specific commands
     fn specific_cmd(&mut self, cmd: &[u8], outdata: Option<&[u8]>) -> Result<ScsiCmdResult>;
@@ -52,6 +59,25 @@ pub(crate) trait ScsiTarget {
     /// Returns the drives total capacity in bytes
     fn capacity(&self) -> Option<usize> {
         Some(self.blocksize()? * self.blocks()?)
+    }
+
+    fn check_lba_within_capacity(&mut self, lba: u32) -> bool {
+        if let Some(capacity) = self.capacity() {
+            if lba as usize >= capacity / self.blocksize().unwrap() {
+                log::error!(
+                    "Seeking beyond disk, lba: {}, capacity: {}, blocksize: {}",
+                    lba,
+                    capacity,
+                    self.blocksize().unwrap()
+                );
+                self.set_cc(
+                    CC_KEY_ILLEGAL_REQUEST,
+                    ASC_LOGICAL_BLOCK_ADDRESS_OUT_OF_RANGE,
+                );
+                return false;
+            }
+        }
+        true
     }
 
     fn cmd(&mut self, cmd: &[u8], outdata: Option<&[u8]>) -> Result<ScsiCmdResult> {
@@ -111,6 +137,18 @@ pub(crate) trait ScsiTarget {
                     }
                 } else {
                     Ok(ScsiCmdResult::DataOut(blockcnt * blocksize))
+                }
+            }
+            0x0B => {
+                // SEEK(6)
+                let lba: u32 = ((u32::from(cmd[1]) & 0x1F) << 16)
+                    | (u32::from(cmd[2]) << 8)
+                    | u32::from(cmd[3]);
+
+                if self.check_lba_within_capacity(lba) {
+                    Ok(ScsiCmdResult::Status(STATUS_GOOD))
+                } else {
+                    Ok(ScsiCmdResult::Status(STATUS_CHECK_CONDITION))
                 }
             }
             0x12 => {
@@ -174,7 +212,16 @@ pub(crate) trait ScsiTarget {
                     result.push(blocksize as u8);
                 }
 
-                if let Some(pagedata) = self.mode_sense(page) {
+                if page == 0x3F {
+                    // Return all supported pages
+                    for p in 0..=0x3E {
+                        if let Some(pagedata) = self.mode_sense(p) {
+                            result.push(p);
+                            result.push(pagedata.len() as u8);
+                            result.extend_from_slice(&pagedata);
+                        }
+                    }
+                } else if let Some(pagedata) = self.mode_sense(page) {
                     result.push(page);
                     result.push(pagedata.len() as u8);
                     result.extend_from_slice(&pagedata);
@@ -187,6 +234,19 @@ pub(crate) trait ScsiTarget {
                 result[0] = result.len() as u8;
                 result.truncate(alloc_len);
                 Ok(ScsiCmdResult::DataIn(result))
+            }
+            0x2B => {
+                // SEEK(10)
+                let lba: u32 = (u32::from(cmd[2]) << 24)
+                    | (u32::from(cmd[3]) << 16)
+                    | (u32::from(cmd[4]) << 8)
+                    | u32::from(cmd[5]);
+
+                if self.check_lba_within_capacity(lba) {
+                    Ok(ScsiCmdResult::Status(STATUS_GOOD))
+                } else {
+                    Ok(ScsiCmdResult::Status(STATUS_CHECK_CONDITION))
+                }
             }
             0x25 => {
                 // READ CAPACITY(10)

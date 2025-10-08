@@ -3,6 +3,7 @@
 use anyhow::{bail, Context, Result};
 #[cfg(feature = "mmap")]
 use memmap2::Mmap;
+use serde::{Deserialize, Serialize};
 
 use std::path::Path;
 use std::path::PathBuf;
@@ -22,9 +23,11 @@ use super::STATUS_GOOD;
 
 const TRACK_LEADOUT: u8 = 0xAA;
 
+#[derive(Serialize, Deserialize)]
 pub(super) struct ScsiTargetCdrom {
     /// Disk contents
     #[cfg(feature = "mmap")]
+    #[serde(skip)] // TODO serde
     pub(super) disk: Option<Mmap>,
 
     #[cfg(not(feature = "mmap"))]
@@ -165,6 +168,7 @@ impl ScsiTargetCdrom {
     }
 }
 
+#[typetag::serde]
 impl ScsiTarget for ScsiTargetCdrom {
     /// Try to load a disk image, given the filename of the image.
     ///
@@ -220,6 +224,10 @@ impl ScsiTarget for ScsiTargetCdrom {
         self.disk = Some(disk);
         self.path = path.to_path_buf();
         Ok(())
+    }
+
+    fn media(&self) -> Option<&[u8]> {
+        self.disk.as_deref()
     }
 
     fn take_event(&mut self) -> Option<ScsiTargetEvent> {
@@ -392,5 +400,15 @@ impl ScsiTarget for ScsiTargetCdrom {
             return true;
         }
         false
+    }
+
+    #[cfg(feature = "savestates")]
+    fn after_deserialize(&mut self, imgfn: &Path) -> Result<()> {
+        self.load_media(imgfn)?;
+        Ok(())
+    }
+
+    fn branch_media(&mut self, _path: &Path) -> Result<()> {
+        bail!("Unsupported on CD-ROM");
     }
 }

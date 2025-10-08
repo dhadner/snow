@@ -1,7 +1,7 @@
 ﻿//! NCR5380 SCSI controller
 
 use std::collections::VecDeque;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Result};
 
@@ -11,6 +11,7 @@ use num_derive::ToPrimitive;
 use num_traits::FromPrimitive;
 use proc_bitfield::bitfield;
 use serde::{Deserialize, Serialize};
+use serde_big_array::BigArray;
 
 use crate::bus::{Address, BusMember};
 use crate::dbgprop_byte;
@@ -20,12 +21,13 @@ use crate::mac::scsi::disk::ScsiTargetDisk;
 use crate::mac::scsi::scsi_cmd_len;
 use crate::mac::scsi::target::ScsiTarget;
 use crate::mac::scsi::target::ScsiTargetType;
+use crate::mac::scsi::toolbox::BlueSCSI;
 use crate::mac::scsi::ScsiCmdResult;
 use crate::mac::scsi::STATUS_GOOD;
 use crate::types::LatchingEvent;
 
 #[allow(dead_code)]
-#[derive(Clone, Debug, PartialEq, Eq, strum::IntoStaticStr)]
+#[derive(Clone, Debug, PartialEq, Eq, strum::IntoStaticStr, Serialize, Deserialize)]
 /// SCSI bus phases
 enum ScsiBusPhase {
     Free,
@@ -138,6 +140,7 @@ bitfield! {
 }
 
 /// NCR 5380 SCSI controller
+#[derive(Serialize, Deserialize)]
 pub struct ScsiController {
     busphase: ScsiBusPhase,
     reg_mr: NcrRegMr,
@@ -167,13 +170,18 @@ pub struct ScsiController {
     responsebuf: VecDeque<u8>,
 
     /// Attached targets
-    pub(crate) targets: [Option<Box<dyn ScsiTarget + Send>>; Self::MAX_TARGETS],
+    #[serde(with = "BigArray")]
+    pub(crate) targets: [Option<Box<dyn ScsiTarget>>; Self::MAX_TARGETS],
 
     set_req: LatchingEvent,
+
+    #[serde(skip)]
+    toolbox: BlueSCSI,
+    scsi_debug: bool,
 }
 
 impl ScsiController {
-    const MAX_TARGETS: usize = 7;
+    pub const MAX_TARGETS: usize = 7;
 
     pub fn get_irq(&self) -> bool {
         self.reg_bsr.irq()
@@ -194,6 +202,10 @@ impl ScsiController {
         self.targets[id].as_ref().map(|t| t.target_type())
     }
 
+    pub fn set_shared_dir(&mut self, path: Option<PathBuf>) {
+        self.toolbox = BlueSCSI::new(path);
+    }
+
     pub fn new() -> Self {
         Self {
             busphase: ScsiBusPhase::Free,
@@ -212,6 +224,8 @@ impl ScsiController {
             status: 0,
             set_req: Default::default(),
             targets: Default::default(),
+            toolbox: BlueSCSI::default(),
+            scsi_debug: false,
         }
     }
 
@@ -288,6 +302,9 @@ impl ScsiController {
                 self.assert_req();
             }
             ScsiBusPhase::DataIn => {
+                if self.responsebuf.is_empty() {
+                    return self.set_phase(ScsiBusPhase::Status);
+                }
                 self.reg_csr.set_bsy(true);
                 self.reg_csr.set_cd(false);
                 self.reg_csr.set_io(true);
@@ -376,11 +393,20 @@ impl ScsiController {
     /// 
     fn cmd_run(&mut self, outdata: Option<&[u8]>) -> Result<()> {
         let cmd = &self.cmdbuf;
-        let Some(target) = self.targets[self.sel_id].as_mut() else {
-            bail!("SCSI command to disconnected target ID {}", self.sel_id);
+
+        let result = match cmd[0] {
+            0xD0..=0xD9 => Ok(self
+                .toolbox
+                .handle_command(cmd, outdata, &mut self.scsi_debug)),
+            _ => {
+                let Some(target) = self.targets[self.sel_id].as_mut() else {
+                    bail!("SCSI command to disconnected target ID {}", self.sel_id);
+                };
+                target.cmd(cmd, outdata)
+            }
         };
 
-        match target.cmd(cmd, outdata) {
+        match result {
             Ok(ScsiCmdResult::Status(s)) => {
                 self.status = s;
 

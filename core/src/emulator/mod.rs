@@ -1,10 +1,17 @@
 pub mod comm;
 
+#[cfg(feature = "savestates")]
+pub mod save;
+
 use serde::{Deserialize, Serialize};
 use snow_floppy::loaders::{Autodetect, FloppyImageLoader, FloppyImageSaver, Moof};
 use snow_floppy::Floppy;
 use std::collections::VecDeque;
-use std::path::Path;
+#[cfg(feature = "savestates")]
+use std::fs::File;
+#[cfg(feature = "savestates")]
+use std::io::Seek;
+use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, Instant};
 use strum::IntoEnumIterator;
@@ -13,8 +20,9 @@ use crate::bus::{Address, Bus, InspectableBus};
 use crate::cpu_m68k::cpu::{HistoryEntry, SystrapHistoryEntry};
 use crate::cpu_m68k::{CpuM68000, CpuM68020, CpuM68020Pmmu};
 use crate::debuggable::{Debuggable, DebuggableProperties};
-use crate::keymap::{KeyEvent, Keymap};
-use crate::mac::adb::{AdbKeyboard, AdbMouse};
+#[cfg(feature = "savestates")]
+use crate::emulator::save::{load_state_from, save_state_to};
+use crate::keymap::KeyEvent;
 use crate::mac::compact::bus::{CompactMacBus, RAM_DIRTY_PAGESIZE};
 use crate::mac::macii::bus::MacIIBus;
 use crate::mac::scc::Scc;
@@ -25,7 +33,7 @@ use crate::renderer::channel::ChannelRenderer;
 use crate::renderer::AudioReceiver;
 use crate::renderer::{DisplayBuffer, Renderer};
 use crate::tickable::{Tickable, Ticks};
-use crate::types::{Byte, KeyEventSender, MouseEvent, MouseEventSender};
+use crate::types::Byte;
 
 use anyhow::{bail, Context, Result};
 use bit_set::BitSet;
@@ -137,6 +145,7 @@ macro_rules! dispatch {
 
 /// Emulator config. Basically an abstraction on top of the CPU for multiple different model groups
 /// that provides access to the inner components by the emulator runner through dynamic dispatch.
+#[derive(Serialize, Deserialize)]
 enum EmulatorConfig {
     /// Compact series - Mac 128K, 512K, Plus, SE, Classic
     Compact(Box<CpuM68000<CompactMacBus<ChannelRenderer>>>),
@@ -166,6 +175,7 @@ dispatch! {
     }
 
     immutable_calls {
+        fn model(&self) -> MacModel { bus.model() }
         fn cpu_cycles(&self) -> Ticks { cycles }
         fn cpu_breakpoints(&self) -> &[Breakpoint] { breakpoints() }
         fn cpu_get_step_over(&self) -> Option<Address> { get_step_over() }
@@ -191,33 +201,18 @@ dispatch! {
         fn cpu_reset(&mut self) -> Result<()> { reset() }
 
         fn bus_reset(&mut self) -> Result<()> { bus.reset(true) }
+        fn after_deserialize(&mut self, renderer: ChannelRenderer) -> () { bus.after_deserialize(renderer) }
         fn bus_write(&mut self, addr: Address, val: Byte) -> crate::bus::BusResult<Byte> { bus.write(addr, val) }
         fn bus_inspect_read(&mut self, addr: Address) -> Option<Byte> { bus.inspect_read(addr) }
         fn bus_inspect_write(&mut self, addr: Address, val: Byte) -> Option<()> { bus.inspect_write(addr, val) }
 
         fn mouse_update_rel(&mut self, relx: i16, rely: i16, button: Option<bool>) -> () { bus.mouse_update_rel(relx, rely, button) }
         fn mouse_update_abs(&mut self, x: u16, y: u16) -> () { bus.mouse_update_abs(x, y) }
+        fn keyboard_event(&mut self, ke: KeyEvent) -> () { bus.keyboard_event(ke) }
         fn progkey(&mut self) -> () { bus.progkey() }
         fn video_blank(&mut self) -> Result<()> { bus.video_blank() }
-    }
-}
 
-// Special cases that differ between variants
-// TODO clean these up
-impl EmulatorConfig {
-    pub fn keyboard_event(&mut self, ev: KeyEvent) -> Result<()> {
-        match self {
-            Self::Compact(cpu) => cpu.bus.via.keyboard.event(ev),
-            Self::MacII(_) | Self::MacIIPmmu(_) => unreachable!(), // MacII uses ADB, not direct keyboard events
-        }
-    }
-
-    pub fn rtc_mut(&mut self) -> &mut Rtc {
-        match self {
-            Self::Compact(cpu) => &mut cpu.bus.via.rtc,
-            Self::MacII(cpu) => &mut cpu.bus.via1.rtc,
-            Self::MacIIPmmu(cpu) => &mut cpu.bus.via1.rtc,
-        }
+        fn rtc_mut(&mut self) -> &mut Rtc { bus.rtc_mut() }
     }
 }
 
@@ -230,8 +225,6 @@ pub struct Emulator {
     event_recv: EmulatorEventReceiver,
     run: bool,
     last_update: Instant,
-    adbmouse_sender: Option<MouseEventSender>,
-    adbkeyboard_sender: Option<KeyEventSender>,
     model: MacModel,
     record_input: Option<InputRecording>,
     replay_input: VecDeque<(Ticks, EmulatorCommand)>,
@@ -252,6 +245,7 @@ impl Emulator {
             None,
             None,
             false,
+            None,
         )
     }
 
@@ -265,6 +259,7 @@ impl Emulator {
         ram_size: Option<usize>,
         override_fdd_type: Option<DriveType>,
         pmmu_enabled: bool,
+        shared_dir: Option<PathBuf>,
     ) -> Result<(Self, crossbeam_channel::Receiver<DisplayBuffer>)> {
         // Set up channels
         let (cmds, cmdr) = crossbeam_channel::unbounded();
@@ -272,7 +267,7 @@ impl Emulator {
         let renderer = ChannelRenderer::new(0, 0)?;
         let frame_recv = renderer.get_receiver();
 
-        let (config, adbkeyboard_sender, adbmouse_sender) = match model {
+        let mut config = match model {
             MacModel::Early128K
             | MacModel::Early512K
             | MacModel::Early512Ke
@@ -298,30 +293,10 @@ impl Emulator {
                     ram_size,
                     override_fdd_type,
                 );
-                let mut cpu = Box::new(CpuM68000::new(bus));
+                let cpu = Box::new(CpuM68000::new(bus));
                 assert_eq!(cpu.get_type(), model.cpu_type());
 
-                // Initialize input devices
-                let adbmouse_sender = if model.has_adb() {
-                    let (mouse, mouse_sender) = AdbMouse::new();
-                    cpu.bus.via.adb.add_device(mouse);
-                    Some(mouse_sender)
-                } else {
-                    None
-                };
-                let adbkeyboard_sender = if model.has_adb() {
-                    let (keyboard, sender) = AdbKeyboard::new();
-                    cpu.bus.via.adb.add_device(keyboard);
-                    Some(sender)
-                } else {
-                    None
-                };
-                cpu.reset()?;
-                (
-                    EmulatorConfig::Compact(cpu),
-                    adbkeyboard_sender,
-                    adbmouse_sender,
-                )
+                EmulatorConfig::Compact(cpu)
             }
             MacModel::MacII | MacModel::MacIIFDHD => {
                 assert!(override_fdd_type.is_none());
@@ -351,30 +326,10 @@ impl Emulator {
                         mouse_mode,
                         ram_size,
                     );
-                    let mut cpu = Box::new(CpuM68020::new(bus));
+                    let cpu = Box::new(CpuM68020::new(bus));
                     assert_eq!(cpu.get_type(), model.cpu_type());
 
-                    // Initialize input devices
-                    let adbmouse_sender = if model.has_adb() {
-                        let (mouse, mouse_sender) = AdbMouse::new();
-                        cpu.bus.via1.adb.add_device(mouse);
-                        Some(mouse_sender)
-                    } else {
-                        None
-                    };
-                    let adbkeyboard_sender = if model.has_adb() {
-                        let (keyboard, sender) = AdbKeyboard::new();
-                        cpu.bus.via1.adb.add_device(keyboard);
-                        Some(sender)
-                    } else {
-                        None
-                    };
-                    cpu.reset()?;
-                    (
-                        EmulatorConfig::MacII(cpu),
-                        adbkeyboard_sender,
-                        adbmouse_sender,
-                    )
+                    EmulatorConfig::MacII(cpu)
                 } else {
                     // Initialize bus and CPU
                     let bus = MacIIBus::new(
@@ -387,33 +342,16 @@ impl Emulator {
                         mouse_mode,
                         ram_size,
                     );
-                    let mut cpu = Box::new(CpuM68020Pmmu::new(bus));
+                    let cpu = Box::new(CpuM68020Pmmu::new(bus));
                     assert_eq!(cpu.get_type(), model.cpu_type());
 
-                    // Initialize input devices
-                    let adbmouse_sender = if model.has_adb() {
-                        let (mouse, mouse_sender) = AdbMouse::new();
-                        cpu.bus.via1.adb.add_device(mouse);
-                        Some(mouse_sender)
-                    } else {
-                        None
-                    };
-                    let adbkeyboard_sender = if model.has_adb() {
-                        let (keyboard, sender) = AdbKeyboard::new();
-                        cpu.bus.via1.adb.add_device(keyboard);
-                        Some(sender)
-                    } else {
-                        None
-                    };
-                    cpu.reset()?;
-                    (
-                        EmulatorConfig::MacIIPmmu(cpu),
-                        adbkeyboard_sender,
-                        adbmouse_sender,
-                    )
+                    EmulatorConfig::MacIIPmmu(cpu)
                 }
             }
         };
+
+        config.scsi_mut().set_shared_dir(shared_dir);
+        config.cpu_reset()?;
 
         let mut emu = Self {
             config,
@@ -423,14 +361,60 @@ impl Emulator {
             event_recv: statusr,
             run: false,
             last_update: Instant::now(),
-            adbmouse_sender,
-            adbkeyboard_sender,
             model,
             record_input: None,
             replay_input: VecDeque::default(),
             peripheral_debug: false,
         };
         emu.status_update()?;
+
+        Ok((emu, frame_recv))
+    }
+
+    /// Restores a saved emulator state into a new Emulator instance
+    #[cfg(feature = "savestates")]
+    pub fn load_state<P: AsRef<Path>, PT: AsRef<Path>>(
+        path: P,
+        tmpdir: PT,
+    ) -> Result<(Self, crossbeam_channel::Receiver<DisplayBuffer>)> {
+        let (cmds, cmdr) = crossbeam_channel::unbounded();
+        let (statuss, statusr) = crossbeam_channel::unbounded();
+        let renderer = ChannelRenderer::new(0, 0)?;
+        let frame_recv = renderer.get_receiver();
+        let time = Instant::now();
+
+        let fstr = path
+            .as_ref()
+            .file_name()
+            .map(|p| p.display().to_string())
+            .unwrap_or_default();
+        let f = File::open(path)?;
+
+        let mut config = load_state_from(f, tmpdir)?;
+        config.after_deserialize(renderer);
+
+        let model = config.model();
+
+        let mut emu = Self {
+            config,
+            command_recv: cmdr,
+            command_sender: cmds,
+            event_sender: statuss,
+            event_recv: statusr,
+            run: false,
+            last_update: Instant::now(),
+            model,
+            record_input: None,
+            replay_input: VecDeque::default(),
+            peripheral_debug: false,
+        };
+        emu.status_update()?;
+        log::info!(
+            "Restored save state {} ({}) in {:?}",
+            fstr,
+            model,
+            time.elapsed()
+        );
 
         Ok((emu, frame_recv))
     }
@@ -560,17 +544,19 @@ impl Emulator {
         self.config.cpu_tick(1)?;
 
         // Mac 512K: 0x402154, Mac Plus: 0x418CCC
-        //if self.cpu.regs.pc == 0x418CCC {
-        //    debug!(
-        //        "Sony_RdAddr = {}, format: {:02X}, track: {}, sector: {}",
-        //        self.cpu.regs.d[0] as i32,
-        //        self.cpu.regs.d[3] as u8,
-        //        self.cpu.regs.d[1] as u16,
-        //        self.cpu.regs.d[2] as u16,
-        //    );
-        //}
-        //if self.cpu.regs.pc == 0x418EBC {
-        //    debug!("Sony_RdData = {}", self.cpu.regs.d[0] as i32);
+        //if self.config.swim().drives[0].track == 2 {
+        //    if self.config.cpu_regs().pc == 0x418CCC {
+        //        debug!(
+        //            "Sony_RdAddr = {}, format: {:02X}, track: {}, sector: {}",
+        //            self.config.cpu_regs().d[0] as i32,
+        //            self.config.cpu_regs().d[3] as u8,
+        //            self.config.cpu_regs().d[1] as u16,
+        //            self.config.cpu_regs().d[2] as u16,
+        //        );
+        //    }
+        //    if self.config.cpu_regs().pc == 0x418EBC {
+        //        debug!("Sony_RdData = {}", self.config.cpu_regs().d[0] as i32);
+        //    }
         //}
 
         if self.run && self.config.cpu_get_clr_breakpoint_hit() {
@@ -654,6 +640,24 @@ impl Emulator {
         self.config.scsi_mut().attach_cdrom_at(id);
         info!("SCSI ID #{}: CD-ROM drive attached", id);
     }
+
+    #[cfg(feature = "savestates")]
+    fn save_state(&self, p: &Path, screenshot: Option<Vec<u8>>) -> Result<()> {
+        let mut f = File::create(p)?;
+        let time = Instant::now();
+
+        save_state_to(&f, &self.config, screenshot)?;
+
+        log::info!(
+            "Wrote state to {} in {:?} ({} bytes)",
+            p.file_name()
+                .map(|p| p.display().to_string())
+                .unwrap_or_default(),
+            time.elapsed(),
+            f.stream_position()?
+        );
+        Ok(())
+    }
 }
 
 impl Tickable for Emulator {
@@ -668,12 +672,6 @@ impl Tickable for Emulator {
                             r.push((cycles, cmd));
                         }
 
-                        if let Some(s) = self.adbmouse_sender.as_ref() {
-                            s.send(MouseEvent {
-                                button: btn,
-                                rel_movement: Some((relx.into(), rely.into())),
-                            })?;
-                        }
                         self.config.mouse_update_rel(relx, rely, btn);
                     }
                     EmulatorCommand::MouseUpdateAbsolute { x, y } => {
@@ -740,6 +738,21 @@ impl Tickable for Emulator {
                                     id,
                                     filename.display()
                                 );
+                            }
+                            Err(e) => {
+                                self.user_error(&format!("SCSI ID #{}: {:#}", id, e));
+                            }
+                        };
+                        self.status_update()?;
+                    }
+                    EmulatorCommand::ScsiBranchHdd(id, filename) => {
+                        match self.config.scsi_mut().targets[id]
+                            .as_mut()
+                            .context("No target attached")?
+                            .branch_media(&filename)
+                        {
+                            Ok(_) => {
+                                info!("SCSI ID #{}: branched to file '{}'", id, filename.display());
                             }
                             Err(e) => {
                                 self.user_error(&format!("SCSI ID #{}: {:#}", id, e));
@@ -876,12 +889,8 @@ impl Tickable for Emulator {
 
                         if !self.run {
                             info!("Ignoring keyboard input while stopped");
-                        } else if let Some(sender) = self.adbkeyboard_sender.as_ref() {
-                            if let Some(e) = e.translate_scancode(Keymap::AekM0115) {
-                                sender.send(e)?;
-                            }
-                        } else if let Some(e) = e.translate_scancode(Keymap::AkM0110) {
-                            self.config.keyboard_event(e)?;
+                        } else {
+                            self.config.keyboard_event(e);
                         }
                     }
                     EmulatorCommand::CpuSetPC(val) => self.config.cpu_set_pc(val)?,
@@ -933,12 +942,21 @@ impl Tickable for Emulator {
                     EmulatorCommand::SetSystrapHistory(v) => {
                         self.config.cpu_enable_systrap_history(v);
                     }
+                    EmulatorCommand::SetSharedDir(path) => {
+                        self.config.scsi_mut().set_shared_dir(path);
+                    }
                     EmulatorCommand::SetPeripheralDebug(v) => {
                         self.peripheral_debug = v;
                         self.status_update()?;
                     }
                     EmulatorCommand::SccReceiveData(ch, data) => {
                         self.config.scc_mut().push_rx(ch, &data);
+                    }
+                    #[cfg(feature = "savestates")]
+                    EmulatorCommand::SaveState(path, screenshot) => {
+                        if let Err(e) = self.save_state(&path, screenshot) {
+                            self.user_error(&format!("Failed to save state: {:?}", e));
+                        }
                     }
                 }
             }

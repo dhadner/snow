@@ -10,6 +10,8 @@ use crossbeam_channel::{Receiver, Sender};
 use num_derive::{FromPrimitive, ToPrimitive};
 use num_traits::{FromPrimitive, ToPrimitive};
 use proc_bitfield::bitfield;
+use serde::{Deserialize, Serialize};
+use serde_big_array::BigArray;
 
 pub const AUDIO_QUEUE_LEN: usize = 2;
 const FIFO_SIZE: usize = 0x400;
@@ -17,24 +19,36 @@ const FIFO_SIZE: usize = 0x400;
 pub type AudioBuffer = Box<[u8]>;
 
 /// Apple Sound Chip
+#[derive(Serialize, Deserialize)]
 pub struct Asc {
-    sender: Sender<AudioBuffer>,
-    pub receiver: Receiver<AudioBuffer>,
+    #[serde(skip)]
+    sender: Option<Sender<AudioBuffer>>,
+    #[serde(skip)]
+    pub receiver: Option<Receiver<AudioBuffer>>,
+
     buffer: Vec<u8>,
     silent: bool,
 
     mode: AscMode,
+    ctrl: Control,
     channels: [AscChannel; 4],
+    #[serde(with = "BigArray")]
     wavetables: [u8; 0x800],
     fifo_status: FifoStatus,
     irq: bool,
     fifo_l: VecDeque<u8>,
     fifo_r: VecDeque<u8>,
+
+    /// Last sample played on left channel
+    l_last: u8,
+
+    /// Last sample played on right channel
+    r_last: u8,
 }
 
 bitfield! {
     /// FIFO status register
-    #[derive(Clone, Copy, PartialEq, Eq, Default)]
+    #[derive(Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
     pub struct FifoStatus(pub Byte): Debug, FromStorage, IntoStorage, DerefStorage {
         pub l_half: bool @ 0,
         pub l_fullempty: bool @ 1,
@@ -43,13 +57,31 @@ bitfield! {
     }
 }
 
-#[derive(Default)]
+bitfield! {
+    /// Control register
+    #[derive(Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+    pub struct Control(pub Byte): Debug, FromStorage, IntoStorage, DerefStorage {
+        pub stereo: bool @ 1,
+    }
+}
+
+#[derive(Default, Serialize, Deserialize)]
 struct AscChannel {
     freq: Field32,
     phase: Field32,
 }
 
-#[derive(Clone, Copy, Eq, PartialEq, FromPrimitive, ToPrimitive, strum::IntoStaticStr)]
+#[derive(
+    Clone,
+    Copy,
+    Eq,
+    PartialEq,
+    FromPrimitive,
+    ToPrimitive,
+    strum::IntoStaticStr,
+    Serialize,
+    Deserialize,
+)]
 enum AscMode {
     Off = 0,
     Fifo = 1,
@@ -58,10 +90,9 @@ enum AscMode {
 
 impl Default for Asc {
     fn default() -> Self {
-        let (sender, receiver) = crossbeam_channel::bounded(AUDIO_QUEUE_LEN);
-        Self {
-            sender,
-            receiver,
+        let mut result = Self {
+            sender: None,
+            receiver: None,
             buffer: Vec::with_capacity(AUDIO_BUFFER_SIZE),
             silent: true,
             channels: Default::default(),
@@ -71,7 +102,12 @@ impl Default for Asc {
             fifo_r: VecDeque::with_capacity(FIFO_SIZE),
             fifo_status: Default::default(),
             irq: false,
-        }
+            ctrl: Control(0),
+            l_last: 0,
+            r_last: 0,
+        };
+        result.init_channels();
+        result
     }
 }
 
@@ -104,7 +140,10 @@ impl Asc {
         if self.buffer.len() >= AUDIO_BUFFER_SIZE {
             let buffer = std::mem::replace(&mut self.buffer, Vec::with_capacity(AUDIO_BUFFER_SIZE));
             self.silent = buffer.iter().all(|&s| s == buffer[0]);
-            self.sender.send(buffer.into_boxed_slice())?;
+            self.sender
+                .as_ref()
+                .unwrap()
+                .send(buffer.into_boxed_slice())?;
         }
         Ok(())
     }
@@ -123,8 +162,15 @@ impl Asc {
 
     /// Sample the ASC for FIFO mode
     fn sample_fifo(&mut self) -> (u8, u8) {
-        let l = self.fifo_l.pop_front().unwrap_or(0);
-        let r = self.fifo_r.pop_front().unwrap_or(0);
+        // If a FIFO is empty, the ASC will continue to output the last sample of that channel
+        let l = self.fifo_l.pop_front().unwrap_or(self.l_last);
+        let r = if self.ctrl.stereo() {
+            self.fifo_r.pop_front().unwrap_or(self.r_last)
+        } else {
+            l
+        };
+        self.l_last = l;
+        self.r_last = r;
 
         // Set FIFO status bits
         if self.fifo_l.len() == FIFO_SIZE / 2 {
@@ -165,6 +211,16 @@ impl Asc {
         // TODO configurable sample rate
         22257
     }
+
+    pub fn init_channels(&mut self) {
+        let (sender, receiver) = crossbeam_channel::bounded(AUDIO_QUEUE_LEN);
+        self.sender = Some(sender);
+        self.receiver = Some(receiver);
+    }
+
+    pub fn after_deserialize(&mut self) {
+        self.init_channels();
+    }
 }
 
 impl BusMember<Address> for Asc {
@@ -178,6 +234,8 @@ impl BusMember<Address> for Asc {
             0x800 => Some(0), // ASC v1
             // Mode
             0x801 => Some(self.mode.to_u8().unwrap()),
+            // Control
+            0x802 => Some(self.ctrl.0),
             // FIFO status
             0x804 => {
                 self.irq = false;
@@ -226,6 +284,8 @@ impl BusMember<Address> for Asc {
             0x000..=0x7FF => Some(()),
             // Mode
             0x801 => Some(self.mode = AscMode::from_u8(val).unwrap_or(AscMode::Off)),
+            // Control
+            0x802 => Some(self.ctrl.0 = val),
             // FIFO control
             0x803 => {
                 if val & 0x80 != 0 {

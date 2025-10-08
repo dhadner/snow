@@ -8,6 +8,9 @@ use crate::bus::{Address, Bus, BusMember, BusResult, InspectableBus, IrqSource};
 use crate::debuggable::Debuggable;
 use crate::emulator::comm::EmulatorSpeed;
 use crate::emulator::MouseMode;
+use crate::keymap::KeyEvent;
+use crate::mac::adb::{AdbEvent, AdbKeyboard, AdbMouse};
+use crate::mac::rtc::Rtc;
 use crate::mac::scc::{Scc, SccCh};
 use crate::mac::scsi::controller::ScsiController;
 use crate::mac::swim::drive::DriveType;
@@ -16,25 +19,25 @@ use crate::mac::via::Via;
 use crate::mac::MacModel;
 use crate::renderer::{AudioReceiver, Renderer};
 use crate::tickable::{Tickable, Ticks};
-use crate::types::{Byte, LatchingEvent};
+use crate::types::{Byte, LatchingEvent, MouseEvent};
 use crate::util::take_from_accumulator;
 
 use anyhow::Result;
 use bit_set::BitSet;
 use log::*;
 use num_traits::{FromPrimitive, PrimInt, ToBytes};
+use serde::{Deserialize, Serialize};
 
 /// Size of a RAM page in MacBus::ram_dirty
 pub const RAM_DIRTY_PAGESIZE: usize = 256;
 
+#[derive(Serialize, Deserialize)]
+#[serde(bound = "")]
 pub struct CompactMacBus<TRenderer: Renderer> {
     cycles: Ticks,
 
     /// The currently emulated Macintosh model
     model: MacModel,
-
-    /// Trace non-ROM/RAM access
-    pub trace: bool,
 
     rom: Vec<u8>,
     extension_rom: Vec<u8>,
@@ -46,7 +49,10 @@ pub struct CompactMacBus<TRenderer: Renderer> {
     pub(crate) via: Via,
     pub(crate) scc: Scc,
     pub(crate) video: Video<TRenderer>,
+
+    #[serde(skip)]
     pub(crate) audio: AudioState,
+
     eclock: Ticks,
     mouse_ready: bool,
     pub(crate) swim: Swim,
@@ -69,8 +75,6 @@ pub struct CompactMacBus<TRenderer: Renderer> {
     /// Sound is in the upper bytes per 16-bit pair, disk PWM in the lower
     soundbuf_alt: Range<usize>,
 
-    pub dbg_break: LatchingEvent,
-
     overlay: bool,
 
     /// Emulation speed setting
@@ -80,6 +84,9 @@ pub struct CompactMacBus<TRenderer: Renderer> {
     last_audiosample: u8,
 
     /// Last vblank time (for syncing to video)
+    /// Not serializing this because it is only used for determining how long to
+    /// sleep for in Video speed mode.
+    #[serde(skip, default = "Instant::now")]
     vblank_time: Instant,
 
     /// VPA/E-clock sync in progress
@@ -102,6 +109,10 @@ impl<TRenderer> CompactMacBus<TRenderer>
 where
     TRenderer: Renderer,
 {
+    /// Value to return on open bus
+    /// Certain applications (e.g. Animation Toolkit) rely on this.
+    const OPENBUS: u8 = 0;
+
     /// Main sound buffer offset (from end of RAM)
     const SOUND_MAIN_OFFSET: usize = 0x0300;
     /// Alternate sound buffer offset (from end of RAM)
@@ -149,7 +160,6 @@ where
         let mut bus = Self {
             cycles: 0,
             model,
-            trace: false,
 
             rom: Vec::from(rom),
             extension_rom: extension_rom.map(Vec::from).unwrap_or_default(),
@@ -174,7 +184,6 @@ where
             soundbuf_main: sound_main_start..(sound_main_start + Self::SOUNDBUF_SIZE),
             soundbuf_alt: sound_alt_start..(sound_alt_start + Self::SOUNDBUF_SIZE),
 
-            dbg_break: LatchingEvent::default(),
             overlay: true,
             speed: EmulatorSpeed::Accurate,
             last_audiosample: 0,
@@ -192,11 +201,32 @@ where
             bus.write_ram(addr, value);
         }
 
+        // Initialize ADB devices
+        if model.has_adb() {
+            bus.via.adb.add_device(AdbMouse::new());
+            bus.via.adb.add_device(AdbKeyboard::new());
+        }
+
         bus
     }
 
+    /// Reinstalls things that can't be serialized and does some updates upon deserialization
+    pub fn after_deserialize(&mut self, renderer: TRenderer) {
+        self.video.renderer = Some(renderer);
+        // Make sure we have at least the last frame available
+        self.video.render().unwrap();
+
+        // Mark all RAM pages as dirty after deserialization to update memory display
+        self.ram_dirty
+            .extend(0..(self.ram.len() / RAM_DIRTY_PAGESIZE));
+    }
+
+    pub fn model(&self) -> MacModel {
+        self.model
+    }
+
     pub(crate) fn get_audio_channel(&self) -> AudioReceiver {
-        self.audio.receiver.clone()
+        self.audio.receiver.as_ref().unwrap().clone()
     }
 
     fn soundbuf(&mut self) -> &mut [u8] {
@@ -229,10 +259,6 @@ where
     }
 
     fn write_overlay(&mut self, addr: Address, val: Byte) -> Option<()> {
-        if self.trace && !(0x0060_0000..=0x007F_FFFF).contains(&addr) {
-            trace!("WRO {:08X} - {:02X}", addr, val);
-        }
-
         match addr {
             // ROM (disables overlay)
             0x0040_0000..=0x0057_FFFF if self.model >= MacModel::SE => {
@@ -258,13 +284,9 @@ where
     }
 
     fn write_normal(&mut self, addr: Address, val: Byte) -> Option<()> {
-        if self.trace && !(0x0000_0000..=0x003F_FFFF).contains(&addr) {
-            trace!("WR {:08X} - {:02X}", addr, val);
-        }
-
         match addr {
             // RAM
-            0x0000_0000..=0x003F_FFFF => {
+            0x0000_0000..=0x003F_FFFF | 0x0060_0000..=0x006F_FFFF => {
                 // Duplicate framebuffers to video component
                 // (writes also go through RAM)
                 if self.fb_main.contains(&(addr & self.ram_mask as Address)) {
@@ -297,7 +319,7 @@ where
     }
 
     fn read_overlay(&mut self, addr: Address) -> Option<Byte> {
-        let result = match addr {
+        match addr {
             // Overlay flip for Mac SE+
             0x0040_0000..=0x004F_FFFF if self.model >= MacModel::SE => {
                 self.overlay = false;
@@ -305,14 +327,19 @@ where
             }
             // ROM
             0x0000_0000..=0x000F_FFFF | 0x0020_0000..=0x002F_FFFF | 0x0040_0000..=0x004F_FFFF => {
-                Some(*self.rom.get(addr as usize & self.rom_mask).unwrap_or(&0xFF))
+                Some(
+                    *self
+                        .rom
+                        .get(addr as usize & self.rom_mask)
+                        .unwrap_or(&Self::OPENBUS),
+                )
             }
             // SCSI
             0x0058_0000..=0x005F_FFFF if self.model.has_scsi() => self.scsi.read(addr),
             // RAM
             0x0060_0000..=0x007F_FFFF => Some(self.ram[addr as usize & self.ram_mask]),
             // Phase adjust (ignore)
-            0x009F_FFF7 | 0x009F_FFF9 => Some(0xFF),
+            0x009F_FFF7 | 0x009F_FFF9 => Some(Self::OPENBUS),
             // SCC
             0x009F_0000..=0x009F_FFFF | 0x00BF_0000..=0x00BF_FFFF => self.scc.read(addr >> 1),
             // IWM
@@ -320,41 +347,46 @@ where
             // VIA
             0x00EF_0000..=0x00EF_FFFF => self.via.read(addr),
             // Phase read (ignore)
-            0x00F0_0000..=0x00F7_FFFF => Some(0xFF),
+            0x00F0_0000..=0x00F7_FFFF => Some(Self::OPENBUS),
             // Test software region / extension ROM
             0x00F8_0000..=0x00F9_FFFF => Some(
                 *self
                     .extension_rom
                     .get((addr - 0xF8_0000) as usize)
-                    .unwrap_or(&0xFF),
+                    .unwrap_or(&Self::OPENBUS),
             ),
 
             _ => None,
-        };
-        if self.trace && !(0x0000_0000..=0x007F_FFFF).contains(&addr) {
-            trace!("RDO {:08X} - {:02X?}", addr, result);
         }
-
-        result
     }
 
     fn read_normal(&mut self, addr: Address) -> Option<Byte> {
-        let result = match addr {
+        match addr {
             // RAM
-            0x0000_0000..=0x003F_FFFF => Some(self.ram[addr as usize & self.ram_mask]),
-            // ROM
-            0x0040_0000..=0x0043_FFFF => {
-                Some(*self.rom.get(addr as usize & self.rom_mask).unwrap_or(&0xFF))
+            0x0000_0000..=0x003F_FFFF | 0x0060_0000..=0x006F_FFFF => {
+                Some(self.ram[addr as usize & self.ram_mask])
             }
+            // ROM
+            0x0040_0000..=0x0043_FFFF => Some(
+                *self
+                    .rom
+                    .get(addr as usize & self.rom_mask)
+                    .unwrap_or(&Self::OPENBUS),
+            ),
             0x0044_0000..=0x004F_FFFF => {
                 if self.model == MacModel::Plus {
                     // Plus with SCSI has no repeated ROM images above 0x440000 as
                     // indication of SCSI controller present.
                     //
                     // 512Ke (using Plus ROM) does have repeated ROM images
-                    Some(0xFF)
+                    Some(Self::OPENBUS)
                 } else {
-                    Some(*self.rom.get(addr as usize & self.rom_mask).unwrap_or(&0xFF))
+                    Some(
+                        *self
+                            .rom
+                            .get(addr as usize & self.rom_mask)
+                            .unwrap_or(&Self::OPENBUS),
+                    )
                 }
             }
             // SCSI
@@ -370,24 +402,28 @@ where
                 *self
                     .extension_rom
                     .get((addr - 0xF8_0000) as usize)
-                    .unwrap_or(&0xFF),
+                    .unwrap_or(&Self::OPENBUS),
             ),
 
             _ => None,
-        };
-
-        if self.trace && !(0x0000_0000..=0x004F_FFFF).contains(&addr) {
-            trace!("RD {:08X} - {:02X?}", addr, result);
         }
-        result
     }
 
     /// Updates the mouse position (relative coordinates) and button state
     pub fn mouse_update_rel(&mut self, relx: i16, rely: i16, button: Option<bool>) {
+        if self.mouse_mode == MouseMode::Disabled {
+            return;
+        }
+
         if let Some(b) = button {
             if !self.model.has_adb() {
                 // Mouse button through VIA I/O
                 self.via.b_in.set_sw(!b);
+            } else {
+                self.via.adb.event(&AdbEvent::Mouse(MouseEvent {
+                    button,
+                    rel_movement: None,
+                }));
             }
         }
 
@@ -397,21 +433,20 @@ where
 
         match self.mouse_mode {
             MouseMode::Absolute => {
-                let old_x = self.read_ram::<u16>(Self::ADDR_RAWMOUSE_X);
-                let old_y = self.read_ram::<u16>(Self::ADDR_RAWMOUSE_Y);
-                let new_x = old_x.wrapping_add_signed(relx);
-                let new_y = old_y.wrapping_add_signed(rely);
-                self.mouse_update_abs(new_x, new_y);
+                // Handled through mouse_update_abs()
             }
             MouseMode::RelativeHw if !self.model.has_adb() => {
                 self.plusmouse_rel_x = self.plusmouse_rel_x.saturating_add(relx.into());
                 self.plusmouse_rel_y = self.plusmouse_rel_y.saturating_add(rely.into());
             }
             MouseMode::RelativeHw => {
-                // If ADB, this is not called but handled through the mouse
-                // event channel
+                // ADB
+                self.via.adb.event(&AdbEvent::Mouse(MouseEvent {
+                    button: None,
+                    rel_movement: Some((relx.into(), rely.into())),
+                }));
             }
-            MouseMode::Disabled => (),
+            MouseMode::Disabled => unreachable!(),
         }
     }
 
@@ -523,6 +558,19 @@ where
             self.scc.set_dcd(SccCh::B, !dcd_b);
         }
     }
+
+    /// Dispatches a key event to the keyboard
+    pub fn keyboard_event(&mut self, ke: KeyEvent) {
+        if !self.model.has_adb() {
+            self.via.keyboard.event(ke);
+        } else {
+            self.via.adb.event(&AdbEvent::Key(ke));
+        }
+    }
+
+    pub fn rtc_mut(&mut self) -> &mut Rtc {
+        &mut self.via.rtc
+    }
 }
 
 impl<TRenderer> Bus<Address, Byte> for CompactMacBus<TRenderer>
@@ -548,7 +596,7 @@ where
             BusResult::Ok(v)
         } else {
             warn!("Read from unimplemented address: {:08X}", addr);
-            BusResult::Ok(0xFF)
+            BusResult::Ok(Self::OPENBUS)
         }
     }
 
@@ -667,7 +715,7 @@ where
             // not be able to service Y axis movements anymore.
             //
             // From a DCD edge to asserting the interrupt line takes the SCC ~1.5us.
-            if scanline % 8 == 0 {
+            if scanline.is_multiple_of(8) {
                 self.plusmouse_tick();
             }
 

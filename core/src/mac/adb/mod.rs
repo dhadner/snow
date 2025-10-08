@@ -6,23 +6,34 @@ pub mod transceiver;
 
 pub use keyboard::AdbKeyboard;
 pub use mouse::AdbMouse;
-use proc_bitfield::bitfield;
 pub use transceiver::AdbTransceiver;
 
 use arrayvec::ArrayVec;
+use proc_bitfield::bitfield;
+
+use crate::keymap::KeyEvent;
+use crate::types::MouseEvent;
 
 pub type AdbDeviceResponse = ArrayVec<u8, 8>;
 
-pub trait AdbDevice {
+/// Dispatchable ADB events
+pub enum AdbEvent {
+    Key(KeyEvent),
+    Mouse(MouseEvent),
+}
+
+#[typetag::serde(tag = "type")]
+pub trait AdbDevice: Send {
     fn reset(&mut self);
     fn flush(&mut self);
     fn talk(&mut self, reg: u8) -> AdbDeviceResponse;
     fn listen(&mut self, reg: u8, data: &[u8]);
     fn get_srq(&self) -> bool;
     fn get_address(&self) -> u8;
+    fn event(&mut self, event: &AdbEvent);
 }
 
-pub type AdbDeviceInstance = Box<dyn AdbDevice + Send>;
+pub type AdbDeviceInstance = Box<dyn AdbDevice>;
 
 bitfield! {
     /// Register 3

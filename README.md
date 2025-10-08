@@ -2,7 +2,7 @@
 
 [![codecov](https://codecov.io/github/twvd/snow/graph/badge.svg?token=QRQ95QB915)](https://codecov.io/github/twvd/snow) [![Checks and tests](https://github.com/twvd/snow/actions/workflows/tests.yml/badge.svg)](https://github.com/twvd/snow/actions/workflows/tests.yml) [![Build - Linux x64](https://github.com/twvd/snow/actions/workflows/build_linux.yml/badge.svg)](https://github.com/twvd/snow/actions/workflows/build_linux.yml) [![Build - Windows](https://github.com/twvd/snow/actions/workflows/build_windows.yml/badge.svg)](https://github.com/twvd/snow/actions/workflows/build_windows.yml) [![Build - MacOS](https://github.com/twvd/snow/actions/workflows/build_macos.yml/badge.svg)](https://github.com/twvd/snow/actions/workflows/build_macos.yml)
 
-[![](https://dcbadge.limes.pink/api/server/F2vSzTEvPV)](https://discord.gg/F2vSzTEvPV)
+[![](https://dcbadge.limes.pink/api/server/JTdhZ2GbTj)](https://discord.gg/JTdhZ2GbTj)
 
 Snow emulates classic (Motorola 68k-based) Macintosh computers. It features a
 graphical user interface to operate and debug the emulated machine.
@@ -35,7 +35,7 @@ Currently supported hardware:
 * Macintosh keyboard/mouse
 * ADB keyboard/mouse
 * Audio output (PWM-based audio on compact Macs and ASC on Mac II)
-* Macintosh Display Card 8-24 with the 640x480 RGB monitor (Mac II)
+* Macintosh Display Card 8-24 with various monitor types (Mac II)
 
 Supported floppy image formats:
 
@@ -68,6 +68,7 @@ See the [BUILDING.md](docs/BUILDING.md) file for instructions on building.
 ## Acknowledgements
 
 * Thanks to raddad772 for the excellent [68000 JSON test suite](https://github.com/SingleStepTests/m68000)
-* Thanks to Daniel Balsom for the [Fluxfox](https://github.com/dbalsom/fluxfox) library
+* Thanks to Daniel Balsom for creating the Snow mascot art and for the [Fluxfox](https://github.com/dbalsom/fluxfox) library
+* Thanks to Andrew Yaros for contributing the application icon
 * Thanks to the people of the Emudev and [Applesauce](https://applesaucefdc.com/) communities for their infinite wisdom
 * The [Musashi](https://github.com/kstenerud/Musashi) (by Karl Stenerud) and [MAME](https://github.com/mamedev/mame) (many authors) projects have been used as a reference for poorly documented components

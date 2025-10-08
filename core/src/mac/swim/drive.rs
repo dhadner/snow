@@ -107,7 +107,9 @@ impl DriveType {
 }
 
 /// Direction the drive head is set to step to
-#[derive(PartialEq, Eq, Clone, Copy, Debug, Display, strum::IntoStaticStr)]
+#[derive(
+    PartialEq, Eq, Clone, Copy, Debug, Display, strum::IntoStaticStr, Serialize, Deserialize,
+)]
 enum HeadStepDirection {
     Up,
     Down,
@@ -205,6 +207,7 @@ enum DriveWriteReg {
 }
 
 /// A single disk drive, attached to the drive controller
+#[derive(Serialize, Deserialize)]
 pub(crate) struct FloppyDrive {
     idx: usize,
     base_frequency: Ticks,
@@ -360,8 +363,6 @@ impl FloppyDrive {
             }
         }
 
-        // Reset track position
-        self.track_position = 0;
         self.flux_ticks = 0;
         self.flux_ticks_left = 0;
 
@@ -486,7 +487,7 @@ impl FloppyDrive {
         let edges_per_min = pulses_per_min * 2;
         let ticks_per_min = self.base_frequency * 60;
         let ticks_per_edge = ticks_per_min / edges_per_min;
-        (self.cycles / ticks_per_edge % 2) != 0
+        !(self.cycles / ticks_per_edge).is_multiple_of(2)
     }
 
     /// Gets the active selected track offset
@@ -508,7 +509,7 @@ impl FloppyDrive {
                     unreachable!()
                 };
                 // Extra modulus here because RDDATAx can be read while the controller is currently
-                // has the other side selected.
+                // has the other side selected or we just changed tracks.
                 self.floppy
                     .get_track_bit(head, track, self.track_position % tracklen)
             }

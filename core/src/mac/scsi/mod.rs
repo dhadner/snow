@@ -4,6 +4,7 @@ pub mod cdrom;
 pub mod controller;
 pub mod disk;
 pub mod target;
+pub mod toolbox;
 
 pub const STATUS_GOOD: u8 = 0;
 pub const STATUS_CHECK_CONDITION: u8 = 2;
@@ -13,6 +14,7 @@ pub const CC_KEY_ILLEGAL_REQUEST: u8 = 0x05;
 
 pub const ASC_INVALID_FIELD_IN_CDB: u16 = 0x2400;
 pub const ASC_MEDIUM_NOT_PRESENT: u16 = 0x3A00;
+pub const ASC_LOGICAL_BLOCK_ADDRESS_OUT_OF_RANGE: u16 = 0x2100;
 
 const fn scsi_cmd_len(cmdnum: u8) -> Option<usize> {
     match cmdnum {
@@ -45,12 +47,16 @@ const fn scsi_cmd_len(cmdnum: u8) -> Option<usize> {
         | 0x28
         // WRITE(10)
         | 0x2A
+        // MODE SENSE(10)
+        | 0x2B
         // VERIFY(10)
         | 0x2F
         // READ BUFFER(10)
         | 0x3C
         // READ TOC
         | 0x43
+        // BlueSCSI Toolbox commands
+        | 0xD0..=0xD9
         => Some(10),
         _ => {
             None
