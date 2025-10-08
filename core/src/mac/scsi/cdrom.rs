@@ -3,6 +3,7 @@
 use anyhow::{bail, Context, Result};
 #[cfg(feature = "mmap")]
 use memmap2::Mmap;
+use serde::{Deserialize, Serialize};
 
 use std::path::Path;
 use std::path::PathBuf;
@@ -20,14 +21,13 @@ use super::CC_KEY_MEDIUM_ERROR;
 use super::STATUS_CHECK_CONDITION;
 use super::STATUS_GOOD;
 
-const CDROM_BLOCKSIZE: usize = 2048;
-
 const TRACK_LEADOUT: u8 = 0xAA;
 
-#[derive(Default)]
+#[derive(Serialize, Deserialize)]
 pub(super) struct ScsiTargetCdrom {
     /// Disk contents
     #[cfg(feature = "mmap")]
+    #[serde(skip)] // TODO serde
     pub(super) disk: Option<Mmap>,
 
     #[cfg(not(feature = "mmap"))]
@@ -44,14 +44,31 @@ pub(super) struct ScsiTargetCdrom {
 
     /// Media eject event
     event_eject: LatchingEvent,
+
+    /// Block size
+    blocksize: usize,
+}
+
+impl Default for ScsiTargetCdrom {
+    fn default() -> Self {
+        Self {
+            disk: None,
+            path: Default::default(),
+            cc_code: 0,
+            cc_asc: 0,
+            event_eject: Default::default(),
+            blocksize: 2048,
+        }
+    }
 }
 
 impl ScsiTargetCdrom {
+    const VALID_BLOCKSIZES: [usize; 2] = [512, 2048];
+
     fn read_toc(&mut self, format: u8, track: u8, alloc_len: usize) -> Result<ScsiCmdResult> {
         if self.disk.is_none() {
             // No CD inserted
-            self.cc_code = CC_KEY_MEDIUM_ERROR;
-            self.cc_asc = ASC_MEDIUM_NOT_PRESENT;
+            self.set_cc(CC_KEY_MEDIUM_ERROR, ASC_MEDIUM_NOT_PRESENT);
             return Ok(ScsiCmdResult::Status(STATUS_CHECK_CONDITION));
         }
         match format {
@@ -108,8 +125,7 @@ impl ScsiTargetCdrom {
                         Ok(ScsiCmdResult::DataIn(result))
                     }
                     _ => {
-                        self.cc_code = CC_KEY_ILLEGAL_REQUEST;
-                        self.cc_asc = ASC_INVALID_FIELD_IN_CDB;
+                        self.set_cc(CC_KEY_ILLEGAL_REQUEST, ASC_INVALID_FIELD_IN_CDB);
                         Ok(ScsiCmdResult::Status(STATUS_CHECK_CONDITION))
                     }
                 }
@@ -140,8 +156,7 @@ impl ScsiTargetCdrom {
             _ => {
                 log::error!("Unknown READ TOC format: {}", format);
 
-                self.cc_code = CC_KEY_ILLEGAL_REQUEST;
-                self.cc_asc = ASC_INVALID_FIELD_IN_CDB;
+                self.set_cc(CC_KEY_ILLEGAL_REQUEST, ASC_INVALID_FIELD_IN_CDB);
                 Ok(ScsiCmdResult::Status(STATUS_CHECK_CONDITION))
             }
         }
@@ -153,6 +168,7 @@ impl ScsiTargetCdrom {
     }
 }
 
+#[typetag::serde]
 impl ScsiTarget for ScsiTargetCdrom {
     /// Try to load a disk image, given the filename of the image.
     ///
@@ -176,14 +192,6 @@ impl ScsiTarget for ScsiTargetCdrom {
 
         let file_size = f.seek(SeekFrom::End(0))? as usize;
         f.seek(SeekFrom::Start(0))?;
-
-        if file_size % CDROM_BLOCKSIZE != 0 {
-            bail!(
-                "Cannot load disk image {}: not multiple of {}",
-                path.display(),
-                CDROM_BLOCKSIZE
-            );
-        }
 
         f.try_lock_exclusive()
             .with_context(|| format!("Failed to lock {}", path.display()))?;
@@ -213,17 +221,13 @@ impl ScsiTarget for ScsiTargetCdrom {
         let disk =
             fs::read(path).with_context(|| format!("Failed to open file {}", path.display()))?;
 
-        if disk.len() % CDROM_BLOCKSIZE != 0 {
-            bail!(
-                "Cannot load disk image {}: not multiple of {}",
-                path.display(),
-                CDROM_BLOCKSIZE
-            );
-        }
-
         self.disk = Some(disk);
         self.path = path.to_path_buf();
         Ok(())
+    }
+
+    fn media(&self) -> Option<&[u8]> {
+        self.disk.as_deref()
     }
 
     fn take_event(&mut self) -> Option<ScsiTargetEvent> {
@@ -244,8 +248,7 @@ impl ScsiTarget for ScsiTargetCdrom {
             Ok(ScsiCmdResult::Status(STATUS_GOOD))
         } else {
             // No CD inserted
-            self.cc_code = CC_KEY_MEDIUM_ERROR;
-            self.cc_asc = ASC_MEDIUM_NOT_PRESENT;
+            self.set_cc(CC_KEY_MEDIUM_ERROR, ASC_MEDIUM_NOT_PRESENT);
             Ok(ScsiCmdResult::Status(STATUS_CHECK_CONDITION))
         }
     }
@@ -263,53 +266,68 @@ impl ScsiTarget for ScsiTargetCdrom {
         // 0 Peripheral qualifier (5-7), peripheral device type (4-0)
         result[0] = 5; // CD-ROM drive
         result[1] = 0x80; // Media removable
+        result[2] = 0x02; // ANSI-2
+        result[3] = 0x02; // ANSI-2
 
         // 4 Additional length (N-4), min. 32
         result[4] = result.len() as u8 - 4;
 
         // 8..16 Vendor identification
-        result[8..(8 + 4)].copy_from_slice(b"SNOW");
+        result[8..16].copy_from_slice(b"SNOW    ");
 
         // 16..32 Product identification
-        result[16..(16 + 14)].copy_from_slice(b"CD-ROM CDU-55S");
+        result[16..32].copy_from_slice(b"CD-ROM CDU-55S  ");
+        // 32..36 Revision
+        result[32..36].copy_from_slice(b"1.9a");
         Ok(ScsiCmdResult::DataIn(result))
     }
 
-    fn mode_sense(&mut self, page: u8) -> Result<ScsiCmdResult> {
+    fn mode_sense(&mut self, page: u8) -> Option<Vec<u8>> {
         match page {
+            0x01 => {
+                // Read/write recovery page
+
+                // Error recovery stuff, can remain at 0.
+
+                Some(vec![0; 6])
+            }
+            0x03 => {
+                // Format device page
+
+                Some(vec![0; 0x16])
+            }
             0x30 => {
                 // ? Non-standard mode page
 
-                let mut result = vec![0; 36];
-                // Page code
-                result[0] = 0x30;
-                // Page length
-                result[1] = 0x16;
-
-                result[14..(14 + 22)].copy_from_slice(b"APPLE COMPUTER, INC   ");
-
-                Ok(ScsiCmdResult::DataIn(result))
+                let mut result = vec![0; 0x16];
+                result[0..0x16].copy_from_slice(b"APPLE COMPUTER, INC   ");
+                Some(result)
             }
-            _ => {
-                log::warn!("Unknown MODE SENSE page {:02X}", page);
-                Ok(ScsiCmdResult::Status(STATUS_CHECK_CONDITION))
-            }
+            _ => None,
         }
     }
 
     fn blocksize(&self) -> Option<usize> {
-        Some(CDROM_BLOCKSIZE)
+        Some(self.blocksize)
     }
 
     fn blocks(&self) -> Option<usize> {
-        Some(self.disk.as_ref()?.len() / CDROM_BLOCKSIZE)
+        Some(self.disk.as_ref()?.len().div_ceil(self.blocksize))
     }
 
-    fn read(&self, block_offset: usize, block_count: usize) -> &[u8] {
+    fn read(&self, block_offset: usize, block_count: usize) -> Vec<u8> {
         // If blocks() returns None this will never be called by
         // ScsiTarget::cmd
-        &self.disk.as_ref().expect("read() but no media inserted")
-            [(block_offset * CDROM_BLOCKSIZE)..((block_offset + block_count) * CDROM_BLOCKSIZE)]
+        let blocksize = self.blocksize;
+        let disk = self.disk.as_ref().expect("read() but no media inserted");
+        let end_offset = (block_offset + block_count) * blocksize;
+        let image_end_offset = std::cmp::min(end_offset, disk.len());
+
+        let mut result = disk[(block_offset * blocksize)..image_end_offset].to_vec();
+        // CD-ROM images may not be exactly aligned on block size
+        // Pad the end to a full block size
+        result.resize(block_count * blocksize, 0);
+        result
     }
 
     fn write(&mut self, _block_offset: usize, _data: &[u8]) {
@@ -347,10 +365,50 @@ impl ScsiTarget for ScsiTargetCdrom {
 
                 self.read_toc(format, track, alloc_len)
             }
+            // VENDOR SPECIFIC (EJECT)
+            0xC0 => {
+                self.eject_media();
+                Ok(ScsiCmdResult::Status(STATUS_GOOD))
+            }
             _ => {
                 log::error!("Unknown command {:02X}", cmd[0]);
                 Ok(ScsiCmdResult::Status(STATUS_CHECK_CONDITION))
             }
         }
+    }
+
+    fn ms_density(&self) -> u8 {
+        1 // User data only, 2048 bytes
+    }
+
+    fn ms_media_type(&self) -> u8 {
+        2 // 120mm CD-ROM
+    }
+
+    fn ms_device_specific(&self) -> u8 {
+        0
+    }
+
+    fn set_cc(&mut self, code: u8, asc: u16) {
+        self.cc_code = code;
+        self.cc_asc = asc;
+    }
+
+    fn set_blocksize(&mut self, blocksize: usize) -> bool {
+        if Self::VALID_BLOCKSIZES.contains(&blocksize) {
+            self.blocksize = blocksize;
+            return true;
+        }
+        false
+    }
+
+    #[cfg(feature = "savestates")]
+    fn after_deserialize(&mut self, imgfn: &Path) -> Result<()> {
+        self.load_media(imgfn)?;
+        Ok(())
+    }
+
+    fn branch_media(&mut self, _path: &Path) -> Result<()> {
+        bail!("Unsupported on CD-ROM");
     }
 }

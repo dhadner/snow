@@ -1,16 +1,30 @@
 use eframe::egui;
 use itertools::Itertools;
+use rand::seq::SliceRandom;
 
 /// About dialog showing application information
 pub struct AboutDialog {
     open: bool,
     image: egui::TextureHandle,
+    shuffled_thanks: Vec<&'static str>,
 }
 
 impl AboutDialog {
-    const THANKS: &[&'static str] = &["chip-64bit", "gloriouscow", "hop", "originaldave_", "Rubix"];
+    const THANKS: &[&'static str] = &[
+        "chip-64bit",
+        "gloriouscow",
+        "hop",
+        "originaldave_",
+        "Rubix",
+        "Eric Helgeson",
+        "Reza Fouladian",
+        "KenDesigns",
+    ];
 
     pub fn new(ctx: &egui::Context) -> Self {
+        let mut rng = rand::rng();
+        let mut shuffled_thanks = Self::THANKS.to_vec();
+        shuffled_thanks.shuffle(&mut rng);
         Self {
             image: crate::util::image::load_png_from_bytes_as_texture(
                 ctx,
@@ -19,6 +33,7 @@ impl AboutDialog {
             )
             .unwrap(),
             open: false,
+            shuffled_thanks,
         }
     }
     pub fn update(&mut self, ctx: &egui::Context) {
@@ -27,7 +42,7 @@ impl AboutDialog {
         }
 
         egui::Modal::new(egui::Id::new("About Snow")).show(ctx, |ui| {
-            ui.set_width(450.0);
+            ui.set_width(525.0);
             ui.set_height(270.0);
 
             ui.horizontal(|ui| {
@@ -57,11 +72,14 @@ impl AboutDialog {
                     );
                     ui.label(format!(
                         "Version {} ({} {})",
-                        crate::version_string(),
-                        crate::built_info::CFG_TARGET_ARCH,
-                        crate::built_info::PROFILE
+                        snow_core::build_version(),
+                        snow_core::built_info::CFG_TARGET_ARCH,
+                        snow_core::built_info::PROFILE
                     ));
-                    ui.label(format!("Built on {}", crate::built_info::BUILT_TIME_UTC));
+                    ui.label(format!(
+                        "Built on {}",
+                        snow_core::built_info::BUILT_TIME_UTC
+                    ));
 
                     ui.add_space(16.0);
 
@@ -75,7 +93,15 @@ impl AboutDialog {
                     ui.separator();
                     ui.add_space(10.0);
                     ui.label("Thanks and greetings to:");
-                    ui.label(egui::RichText::new(Self::THANKS.iter().join(", ")).italics());
+                    ui.label(
+                        egui::RichText::new(
+                            self.shuffled_thanks
+                                .chunks(4)
+                                .map(|names| names.join(", "))
+                                .join("\n"),
+                        )
+                        .italics(),
+                    );
                 });
             });
 

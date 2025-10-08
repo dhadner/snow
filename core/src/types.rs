@@ -1,19 +1,12 @@
 use proc_bitfield::bitfield;
 use serde::{Deserialize, Serialize};
 
-use crate::keymap::KeyEvent;
-
-/// Communication channel (sender) for keyboard events to an emulated keyboard
-pub type KeyEventSender = crossbeam_channel::Sender<KeyEvent>;
-
-/// Communication channel (receiver) for keyboard events to an emulated keyboard
-pub type KeyEventReceiver = crossbeam_channel::Receiver<KeyEvent>;
-
-/// Communication channel (sender) for click events to an emulated mouse
-pub type ClickEventSender = crossbeam_channel::Sender<bool>;
-
-/// Communication channel (receiver) for click events to an emulated mouse
-pub type ClickEventReceiver = crossbeam_channel::Receiver<bool>;
+/// Event type for mouse events to an emulated mouse
+#[derive(Default, Serialize, Deserialize, Clone)]
+pub struct MouseEvent {
+    pub button: Option<bool>,
+    pub rel_movement: Option<(i32, i32)>,
+}
 
 /// Communication channel (sender) for sending samples to the host audio device.
 pub type AudioSampleSender = crossbeam_channel::Sender<u8>;
@@ -21,6 +14,7 @@ pub type AudioSampleSender = crossbeam_channel::Sender<u8>;
 pub type Byte = u8;
 pub type Word = u16;
 pub type Long = u32;
+pub type DoubleLong = u64;
 
 bitfield! {
     /// General purpose 16-bit field
@@ -67,7 +61,7 @@ impl Field32 {
 }
 
 /// A self-clearing latch for events etc.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct LatchingEvent {
     val: bool,
 }

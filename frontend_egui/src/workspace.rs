@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use crate::emulator::{EmulatorInitArgs, ScsiTarget};
 use crate::util::relativepath::RelativePath;
+use crate::widgets::framebuffer::ScalingAlgorithm;
 use anyhow::{Context, Result};
 use eframe::egui;
 use serde::{Deserialize, Serialize};
@@ -119,6 +120,15 @@ pub struct Workspace {
 
     /// Map Right ALT to Cmd
     pub map_cmd_ralt: bool,
+
+    /// Scaling algorithm in use
+    pub scaling_algorithm: ScalingAlgorithm,
+
+    /// Pause emulator after loading a state/state file
+    pub pause_on_state_load: bool,
+
+    /// Shared directory for BlueSCSI toolbox
+    shared_dir: Option<RelativePath>,
 }
 
 impl Default for Workspace {
@@ -146,6 +156,9 @@ impl Default for Workspace {
             init_args: EmulatorInitArgs::default(),
             model: None,
             map_cmd_ralt: true,
+            scaling_algorithm: ScalingAlgorithm::Linear,
+            pause_on_state_load: false,
+            shared_dir: None,
         }
     }
 }
@@ -182,6 +195,9 @@ impl Workspace {
         if let Some(p) = result.extension_rom_path.as_mut() {
             p.after_deserialize(parent)?;
         }
+        if let Some(p) = result.shared_dir.as_mut() {
+            p.after_deserialize(parent)?;
+        }
         for d in &mut result.scsi_targets {
             match d {
                 WorkspaceScsiTarget::Disk(ref mut p) => p.after_deserialize(parent)?,
@@ -214,6 +230,9 @@ impl Workspace {
             p.before_serialize(parent)?;
         }
         if let Some(p) = self.extension_rom_path.as_mut() {
+            p.before_serialize(parent)?;
+        }
+        if let Some(p) = self.shared_dir.as_mut() {
             p.before_serialize(parent)?;
         }
         // disks is deprecated
@@ -266,6 +285,14 @@ impl Workspace {
 
     pub fn get_pram_path(&self) -> Option<PathBuf> {
         self.pram_path.clone().map(|d| d.get_absolute())
+    }
+
+    pub fn set_shared_dir(&mut self, p: Option<&Path>) {
+        self.shared_dir = p.map(RelativePath::from_absolute);
+    }
+
+    pub fn get_shared_dir(&self) -> Option<PathBuf> {
+        self.shared_dir.clone().map(|d| d.get_absolute())
     }
 
     /// Persists a window location

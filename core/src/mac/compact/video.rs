@@ -61,10 +61,14 @@ use crate::tickable::{Tickable, Ticks};
 use crate::types::LatchingEvent;
 
 use anyhow::Result;
+use serde::{Deserialize, Serialize};
 
 /// CRT/video circuitry state
+#[derive(Serialize, Deserialize)]
+#[serde(bound = "")]
 pub struct Video<T: Renderer> {
-    renderer: T,
+    #[serde(skip)]
+    pub renderer: Option<T>,
 
     /// Absolute beam position
     dots: Ticks,
@@ -155,7 +159,7 @@ where
 
     pub fn new(renderer: T) -> Self {
         Self {
-            renderer,
+            renderer: Some(renderer),
             dots: 0,
             event_vblank: LatchingEvent::default(),
             event_hblank: LatchingEvent::default(),
@@ -178,14 +182,17 @@ where
     }
 
     /// Prepares the image and sends it to the frontend renderer
-    fn render(&mut self) -> Result<()> {
+    pub fn render(&mut self) -> Result<()> {
         let fb = if !self.framebuffer_select {
             &self.framebuffers[0]
         } else {
             &self.framebuffers[1]
         };
 
-        let buf = self.renderer.buffer_mut();
+        let renderer = self.renderer.as_mut().unwrap();
+        let buf = renderer.buffer_mut();
+        buf.set_size(Self::H_VISIBLE_DOTS, Self::V_VISIBLE_LINES);
+
         for idx in 0..Self::FRAME_VISIBLE_DOTS {
             let byte = idx / 8;
             let bit = idx % 8;
@@ -200,7 +207,7 @@ where
             }
             buf[idx * 4 + 3] = 0xFF;
         }
-        self.renderer.update()?;
+        renderer.update()?;
 
         Ok(())
     }
@@ -270,18 +277,12 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::{mac::MacModel, renderer::NullRenderer};
+    use crate::renderer::NullRenderer;
 
     use super::*;
 
     fn video() -> Video<NullRenderer> {
-        Video::new(
-            NullRenderer::new(
-                MacModel::Plus.display_width(),
-                MacModel::Plus.display_height(),
-            )
-            .unwrap(),
-        )
+        Video::new(NullRenderer::new(0, 0).unwrap())
     }
 
     #[test]

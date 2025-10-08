@@ -1,9 +1,11 @@
 pub mod alu;
 pub mod instruction;
+pub mod math;
 pub mod ops_branch;
 pub mod ops_generic;
 pub mod regs;
 pub mod storage;
+pub mod trig;
 
 use arpfloat::{RoundingMode, Semantics};
 

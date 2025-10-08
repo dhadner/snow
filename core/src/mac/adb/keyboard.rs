@@ -1,10 +1,16 @@
-use crate::keymap::KeyEvent;
-use crate::types::{KeyEventReceiver, KeyEventSender};
+use std::collections::VecDeque;
+
+use crate::{
+    keymap::{KeyEvent, Keymap},
+    mac::adb::AdbEvent,
+};
 
 use super::{AdbDevice, AdbDeviceResponse, AdbReg3};
 
 use log::*;
 use proc_bitfield::bitfield;
+use serde::{Deserialize, Serialize};
+use serde_big_array::BigArray;
 
 bitfield! {
     /// Register 2
@@ -38,31 +44,40 @@ const SC_ROPTION: u8 = 0x7C;
 const SC_DELETE: u8 = 0x75;
 
 /// Apple Desktop Bus-connected keyboard
+#[derive(Serialize, Deserialize)]
 pub struct AdbKeyboard {
     address: u8,
-    key_recv: KeyEventReceiver,
+
+    event_queue: VecDeque<KeyEvent>,
+
+    #[serde(with = "BigArray")]
     keystate: [bool; 256],
+
     capslock: bool,
 }
 
 impl AdbKeyboard {
     pub const INITIAL_ADDRESS: u8 = 2;
+    pub const KEYMAP: Keymap = Keymap::AekM0115;
 
-    pub fn new() -> (Self, KeyEventSender) {
-        let (s, key_recv) = crossbeam_channel::unbounded();
-        (
-            Self {
-                key_recv,
-                address: Self::INITIAL_ADDRESS,
-                keystate: [false; 256],
-                capslock: false,
-            },
-            s,
-        )
+    pub fn new() -> Self {
+        Self {
+            event_queue: VecDeque::new(),
+            address: Self::INITIAL_ADDRESS,
+            keystate: [false; 256],
+            capslock: false,
+        }
     }
 }
 
+#[typetag::serde]
 impl AdbDevice for AdbKeyboard {
+    fn event(&mut self, event: &AdbEvent) {
+        if let AdbEvent::Key(ke) = event {
+            self.event_queue.push_back(*ke);
+        }
+    }
+
     fn get_address(&self) -> u8 {
         self.address
     }
@@ -73,9 +88,7 @@ impl AdbDevice for AdbKeyboard {
     }
 
     fn flush(&mut self) {
-        while !self.key_recv.is_empty() {
-            let _ = self.key_recv.recv();
-        }
+        self.event_queue.clear();
     }
 
     fn talk(&mut self, reg: u8) -> AdbDeviceResponse {
@@ -83,7 +96,11 @@ impl AdbDevice for AdbKeyboard {
             0 => {
                 let mut response = AdbDeviceResponse::default();
                 for _ in 0..2 {
-                    if let Ok(ke) = self.key_recv.try_recv() {
+                    if let Some(ke) = self
+                        .event_queue
+                        .pop_front()
+                        .and_then(|ke| ke.translate_scancode(Self::KEYMAP))
+                    {
                         match ke {
                             KeyEvent::KeyDown(sc) => {
                                 self.keystate[sc as usize] = true;
@@ -111,10 +128,9 @@ impl AdbDevice for AdbKeyboard {
                 }
                 if response.len() == 1 {
                     // Must respond either 0 or 2 bytes
-                    AdbDeviceResponse::from_iter([0xFF, response[0]])
-                } else {
-                    response
+                    response.push(0xFF);
                 }
+                response
             }
             2 => AdbDeviceResponse::from_iter(
                 AdbKeyboardReg2::default()
@@ -138,7 +154,7 @@ impl AdbDevice for AdbKeyboard {
                 AdbReg3::default()
                     .with_exceptional(true)
                     .with_srq(true)
-                    .with_address(self.address)
+                    .with_address(Self::INITIAL_ADDRESS)
                     .with_handler_id(2) // Apple Extended Keyboard M0115
                     .to_be_bytes(),
             ),
@@ -175,6 +191,6 @@ impl AdbDevice for AdbKeyboard {
     }
 
     fn get_srq(&self) -> bool {
-        !self.key_recv.is_empty()
+        !self.event_queue.is_empty()
     }
 }

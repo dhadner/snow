@@ -1,20 +1,47 @@
 //! Widget that receives frames from the emulator and draws them to a
 //! GPU texture-backed image widget.
 
-use std::fs::File;
-use std::path::Path;
+use std::{fs::File, path::Path};
 
 use anyhow::{bail, Result};
 use crossbeam_channel::Receiver;
 use eframe::egui;
 use eframe::egui::Vec2;
+use serde::{Deserialize, Serialize};
 use snow_core::renderer::DisplayBuffer;
+use std::fmt::Display;
+use strum::EnumIter;
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, EnumIter, Eq, PartialEq)]
+pub enum ScalingAlgorithm {
+    Linear,
+    NearestNeighbor,
+}
+
+impl ScalingAlgorithm {
+    fn texture_options(&self) -> egui::TextureOptions {
+        match self {
+            Self::Linear => egui::TextureOptions::LINEAR,
+            Self::NearestNeighbor => egui::TextureOptions::NEAREST,
+        }
+    }
+}
+
+impl Display for ScalingAlgorithm {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Linear => write!(f, "Linear"),
+            Self::NearestNeighbor => write!(f, "Nearest-Neighbor"),
+        }
+    }
+}
 
 pub struct FramebufferWidget {
     frame: Option<DisplayBuffer>,
     frame_recv: Option<Receiver<DisplayBuffer>>,
     viewport_texture: egui::TextureHandle,
     pub scale: f32,
+    pub scaling_algorithm: ScalingAlgorithm,
     display_size: [u16; 2],
 
     response: Option<egui::Response>,
@@ -32,6 +59,7 @@ impl FramebufferWidget {
             ),
             response: None,
             scale: 1.5,
+            scaling_algorithm: ScalingAlgorithm::Linear,
             display_size: [0, 0],
         }
     }
@@ -76,7 +104,7 @@ impl FramebufferWidget {
                                 .map(|c| egui::Color32::from_rgb(c[0], c[1], c[2])),
                         ),
                     },
-                    egui::TextureOptions::LINEAR,
+                    self.scaling_algorithm.texture_options(),
                 );
                 self.frame = Some(frame);
             }
@@ -99,12 +127,13 @@ impl FramebufferWidget {
         response
     }
 
-    pub fn write_screenshot(&self, path: &Path) -> Result<()> {
+    /// Writes a screenshot as PNG
+    pub fn write_screenshot<W: std::io::Write>(&self, writer: W) -> Result<()> {
         let Some(frame) = self.frame.as_ref() else {
             bail!("No framebuffer available");
         };
         let mut encoder = png::Encoder::new(
-            File::create(path)?,
+            writer,
             self.display_size[0].into(),
             self.display_size[1].into(),
         );
@@ -113,7 +142,21 @@ impl FramebufferWidget {
         let mut writer = encoder.write_header()?;
         writer.write_image_data(frame)?;
 
+        // png crate can't release the inner writer..
         Ok(())
+    }
+
+    /// Returns a screenshot as PNG
+    pub fn screenshot(&self) -> Result<Vec<u8>> {
+        let mut v = vec![];
+        self.write_screenshot(&mut v)?;
+
+        Ok(v)
+    }
+
+    /// Writes a screenshot as PNG to a file
+    pub fn write_screenshot_file<P: AsRef<Path>>(&self, path: P) -> Result<()> {
+        self.write_screenshot(File::create(path.as_ref())?)
     }
 
     pub fn rect(&self) -> egui::Rect {

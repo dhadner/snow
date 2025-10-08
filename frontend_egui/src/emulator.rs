@@ -4,7 +4,7 @@ use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::thread::JoinHandle;
-use std::{fs, thread};
+use std::{env, fs, thread};
 
 use anyhow::{anyhow, Result};
 use crossbeam_channel::Receiver;
@@ -23,13 +23,15 @@ use snow_core::emulator::comm::{
     UserMessageType,
 };
 use snow_core::emulator::comm::{EmulatorCommandSender, EmulatorEventReceiver, EmulatorStatus};
-use snow_core::emulator::Emulator;
+use snow_core::emulator::{Emulator, MouseMode};
 use snow_core::keymap::Scancode;
 use snow_core::mac::scc::SccCh;
 use snow_core::mac::scsi::target::ScsiTargetType;
+use snow_core::mac::swim::drive::DriveType;
 use snow_core::mac::{ExtraROMs, MacModel, MacMonitor};
 use snow_core::renderer::DisplayBuffer;
 use snow_core::tickable::{Tickable, Ticks};
+use snow_core::types::LatchingEvent;
 use snow_floppy::{Floppy, FloppyImage, FloppyType};
 
 use crate::audio::SDLAudioSink;
@@ -69,15 +71,32 @@ pub struct EmulatorInitResult {
 
 /// Initialization arguments for the emulator, minus filenames
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(default)]
 pub struct EmulatorInitArgs {
-    #[serde(default)]
+    /// Disable audio, synchronize to video
     pub audio_disabled: bool,
 
-    #[serde(default)]
+    /// Selected monitor (if available)
     pub monitor: Option<MacMonitor>,
 
-    #[serde(default)]
-    pub mouse_disabled: bool,
+    #[serde(skip_serializing)]
+    /// Deprecated; now mouse_mode
+    pub mouse_disabled: Option<bool>,
+
+    /// Mouse emulation mode
+    pub mouse_mode: MouseMode,
+
+    /// Start in fast-forward mode
+    pub start_fastforward: bool,
+
+    /// Configured RAM size or default if None
+    pub ram_size: Option<usize>,
+
+    /// Override the type of floppy drive (for all drives)
+    pub override_fdd_type: Option<DriveType>,
+
+    /// Enable PMMU (Macintosh II only)
+    pub pmmu_enabled: bool,
 }
 
 /// Manages the state of the emulator and feeds input to the GUI
@@ -96,12 +115,18 @@ pub struct EmulatorState {
     ram_update: VecDeque<(Address, Vec<u8>)>,
     record_input_path: Option<PathBuf>,
     instruction_history: Vec<HistoryEntry>,
-    instruction_history_enabled: bool,
     systrap_history: Vec<SystrapHistoryEntry>,
-    systrap_history_enabled: bool,
     peripheral_debug: DebuggableProperties,
-    peripheral_debug_enabled: bool,
     scc_tx: [VecDeque<u8>; 2],
+    mouse_mode: MouseMode,
+
+    // Clear these when emulator is de-initialized
+    instruction_history_enabled: bool,
+    peripheral_debug_enabled: bool,
+    systrap_history_enabled: bool,
+
+    /// Force an emulator update signal to the App even without new events available
+    force_update: LatchingEvent,
 }
 
 impl EmulatorState {
@@ -115,6 +140,7 @@ impl EmulatorState {
         pram: Option<&Path>,
         args: &EmulatorInitArgs,
         model: Option<MacModel>,
+        shared_dir: Option<PathBuf>,
     ) -> Result<EmulatorInitResult> {
         let rom = std::fs::read(filename)?;
         let display_rom = if let Some(filename) = display_rom_path {
@@ -135,6 +161,7 @@ impl EmulatorState {
             pram,
             args,
             model,
+            shared_dir,
         )
     }
 
@@ -149,6 +176,7 @@ impl EmulatorState {
         pram: Option<&Path>,
         args: &EmulatorInitArgs,
         model: Option<MacModel>,
+        shared_dir: Option<PathBuf>,
     ) -> Result<EmulatorInitResult> {
         // Terminate running emulator (if any)
         self.deinit();
@@ -172,25 +200,30 @@ impl EmulatorState {
             extra_roms.push(ExtraROMs::ExtensionROM(extension_rom));
         }
 
-        let (mut emulator, frame_recv) =
-            Emulator::new_with_extra(rom, &extra_roms, model, args.monitor, !args.mouse_disabled)?;
+        let mouse_mode = if matches!(args.mouse_disabled, Some(true)) {
+            // Deprecated mouse_disabled
+            MouseMode::Disabled
+        } else {
+            args.mouse_mode
+        };
+        self.mouse_mode = mouse_mode;
+
+        let (mut emulator, frame_recv) = Emulator::new_with_extra(
+            rom,
+            &extra_roms,
+            model,
+            args.monitor,
+            mouse_mode,
+            args.ram_size,
+            args.override_fdd_type,
+            args.pmmu_enabled,
+            shared_dir,
+        )?;
 
         let cmd = emulator.create_cmd_sender();
 
-        // Initialize audio
-        if args.audio_disabled {
-            cmd.send(EmulatorCommand::SetSpeed(EmulatorSpeed::Video))?;
-        } else if self.audiosink.is_none() {
-            match SDLAudioSink::new(emulator.get_audio()) {
-                Ok(sink) => self.audiosink = Some(sink),
-                Err(e) => {
-                    error!("Failed to initialize audio: {:?}", e);
-                    cmd.send(EmulatorCommand::SetSpeed(EmulatorSpeed::Video))?;
-                }
-            }
-        } else {
-            let mut cb = self.audiosink.as_mut().unwrap().lock();
-            cb.set_receiver(emulator.get_audio());
+        if args.start_fastforward {
+            cmd.send(EmulatorCommand::SetSpeed(EmulatorSpeed::Uncapped))?;
         }
 
         if model.has_scsi() {
@@ -238,7 +271,51 @@ impl EmulatorState {
             emulator.persist_pram(pram_path);
         }
 
-        cmd.send(EmulatorCommand::Run)?;
+        self.init_finalize(emulator, frame_recv, cmd, args.audio_disabled, false)
+    }
+
+    pub fn init_from_statefile<P: AsRef<Path>>(
+        &mut self,
+        path: P,
+        pause: bool,
+    ) -> Result<EmulatorInitResult> {
+        // Terminate running emulator (if any)
+        self.deinit();
+
+        let (emulator, frame_recv) = Emulator::load_state(path, env::temp_dir())?;
+        let cmd = emulator.create_cmd_sender();
+        self.init_finalize(emulator, frame_recv, cmd, false, pause)
+    }
+
+    fn init_finalize(
+        &mut self,
+        mut emulator: Emulator,
+        frame_recv: crossbeam_channel::Receiver<DisplayBuffer>,
+        cmd: EmulatorCommandSender,
+        audio_disabled: bool,
+        pause: bool,
+    ) -> Result<EmulatorInitResult> {
+        // Initialize audio
+        if audio_disabled {
+            cmd.send(EmulatorCommand::SetSpeed(EmulatorSpeed::Video))?;
+        } else if self.audiosink.is_none() {
+            match SDLAudioSink::new(emulator.get_audio()) {
+                Ok(sink) => self.audiosink = Some(sink),
+                Err(e) => {
+                    error!("Failed to initialize audio: {:?}", e);
+                    cmd.send(EmulatorCommand::SetSpeed(EmulatorSpeed::Video))?;
+                }
+            }
+        } else {
+            let mut cb = self.audiosink.as_mut().unwrap().lock();
+            cb.set_receiver(emulator.get_audio());
+        }
+
+        if !pause {
+            cmd.send(EmulatorCommand::Run)?;
+        } else {
+            cmd.send(EmulatorCommand::Stop)?;
+        }
 
         self.eventrecv = Some(emulator.create_event_recv());
 
@@ -259,6 +336,9 @@ impl EmulatorState {
         while !self.poll() {}
         while self.poll() {}
 
+        // Signal the UI to always update state
+        self.force_update.set();
+
         Ok(EmulatorInitResult {
             frame_receiver: frame_recv,
         })
@@ -277,6 +357,12 @@ impl EmulatorState {
             self.status = None;
             self.record_input_path = None;
         }
+
+        self.instruction_history_enabled = false;
+        self.systrap_history_enabled = false;
+        self.peripheral_debug_enabled = false;
+
+        self.force_update.set();
     }
 
     pub fn reset(&self) {
@@ -285,23 +371,43 @@ impl EmulatorState {
         }
     }
 
-    pub fn update_mouse(&self, p: egui::Pos2) {
+    pub fn update_mouse(&self, abs_p: Option<&egui::Pos2>, rel_p: &egui::Pos2) {
         if !self.is_running() {
             return;
         }
 
-        if let Some(ref sender) = self.cmdsender {
-            sender
-                .send(EmulatorCommand::MouseUpdateAbsolute {
-                    x: p.x as u16,
-                    y: p.y as u16,
-                })
-                .unwrap();
-        }
+        let Some(ref sender) = self.cmdsender else {
+            return;
+        };
+
+        match self.mouse_mode {
+            MouseMode::Absolute => {
+                if let Some(abs_p) = abs_p {
+                    sender
+                        .send(EmulatorCommand::MouseUpdateAbsolute {
+                            x: abs_p.x as u16,
+                            y: abs_p.y as u16,
+                        })
+                        .unwrap();
+                }
+            }
+            MouseMode::RelativeHw => {
+                if rel_p.x != 0.0 || rel_p.y != 0.0 {
+                    sender
+                        .send(EmulatorCommand::MouseUpdateRelative {
+                            relx: rel_p.x as i16,
+                            rely: rel_p.y as i16,
+                            btn: None,
+                        })
+                        .unwrap();
+                }
+            }
+            MouseMode::Disabled => (),
+        };
     }
 
     pub fn update_mouse_button(&self, state: bool) {
-        if !self.is_running() {
+        if !self.is_running() || self.mouse_mode == MouseMode::Disabled {
             return;
         }
 
@@ -344,7 +450,7 @@ impl EmulatorState {
             return false;
         };
         if eventrecv.is_empty() {
-            return false;
+            return self.force_update.get_clear();
         }
 
         while let Ok(event) = eventrecv.try_recv() {
@@ -504,6 +610,18 @@ impl EmulatorState {
         }
     }
 
+    /// Loads a floppy image from the specified path in the first free drive.
+    pub fn load_floppy_firstfree(&self, path: &Path) -> bool {
+        // Find a free floppy drive
+        for (i, d) in (0..3).filter_map(|i| self.get_fdd_status(i).map(|d| (i, d))) {
+            if d.present && d.ejected {
+                self.load_floppy(i, path, false);
+                return true;
+            }
+        }
+        false
+    }
+
     /// Reloads last ejected floppy
     pub fn reload_floppy(&self, driveidx: usize) {
         let Some(ref sender) = self.cmdsender else {
@@ -554,6 +672,32 @@ impl EmulatorState {
             .unwrap();
     }
 
+    /// Loads a SCSI HDD image from the specified path into the first free SCSI slot
+    pub fn scsi_attach_hdd_firstfree(&self, path: &Path) -> bool {
+        let Some(targets) = self.status.as_ref().map(|s| s.scsi.as_ref()) else {
+            return false;
+        };
+
+        // Find first free SCSI slot
+        let Some((id, _)) = targets.iter().enumerate().find(|(_, t)| t.is_none()) else {
+            return false;
+        };
+
+        self.scsi_attach_hdd(id, path);
+        true
+    }
+
+    /// Branches off a SCSI HDD image to the specified path.
+    pub fn scsi_branch_hdd(&self, id: usize, path: &Path) {
+        let Some(ref sender) = self.cmdsender else {
+            return;
+        };
+
+        sender
+            .send(EmulatorCommand::ScsiBranchHdd(id, path.to_path_buf()))
+            .unwrap();
+    }
+
     /// Attaches a CD-ROM drive at the given ID
     pub fn scsi_attach_cdrom(&self, id: usize) {
         let Some(ref sender) = self.cmdsender else {
@@ -584,6 +728,25 @@ impl EmulatorState {
         sender
             .send(EmulatorCommand::ScsiLoadMedia(id, path.to_path_buf()))
             .unwrap();
+    }
+
+    /// Loads CD-ROM media into the first free SCSI CD-ROM drive
+    pub fn scsi_load_cdrom_firstfree(&self, path: &Path) -> bool {
+        let Some(targets) = self.status.as_ref().map(|s| s.scsi.as_ref()) else {
+            return false;
+        };
+
+        // Find free CD-ROM drive
+        for (i, t) in targets.iter().enumerate() {
+            let Some(ref t) = t else {
+                continue;
+            };
+            if t.target_type == ScsiTargetType::Cdrom && t.image.is_none() {
+                self.scsi_load_cdrom(i, path);
+                return true;
+            }
+        }
+        false
     }
 
     /// Detach a target from a SCSI ID
@@ -818,5 +981,25 @@ impl EmulatorState {
             return Ok(());
         };
         Ok(sender.send(EmulatorCommand::SccReceiveData(ch, data))?)
+    }
+
+    pub fn is_mouse_relative(&self) -> bool {
+        self.mouse_mode == MouseMode::RelativeHw
+    }
+
+    pub fn save_state(&self, p: &Path, screenshot: Option<Vec<u8>>) {
+        let Some(ref sender) = self.cmdsender else {
+            return;
+        };
+        sender
+            .send(EmulatorCommand::SaveState(p.to_path_buf(), screenshot))
+            .unwrap();
+    }
+
+    pub fn set_shared_dir(&self, path: Option<PathBuf>) {
+        let Some(ref sender) = self.cmdsender else {
+            return;
+        };
+        sender.send(EmulatorCommand::SetSharedDir(path)).unwrap();
     }
 }

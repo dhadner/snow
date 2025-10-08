@@ -33,6 +33,7 @@ pub enum EmulatorCommand {
     SaveFloppy(usize, PathBuf),
     EjectFloppy(usize),
     ScsiAttachHdd(usize, PathBuf),
+    ScsiBranchHdd(usize, PathBuf),
     ScsiAttachCdrom(usize),
     ScsiLoadMedia(usize, PathBuf),
     DetachScsiTarget(usize),
@@ -68,10 +69,13 @@ pub enum EmulatorCommand {
     SetPeripheralDebug(bool),
     SccReceiveData(SccCh, Vec<u8>),
     SetSystrapHistory(bool),
+    SetSharedDir(Option<PathBuf>),
+    #[cfg(feature = "savestates")]
+    SaveState(PathBuf, Option<Vec<u8>>),
 }
 
 /// Emulator speed tweak
-#[derive(Debug, Copy, Clone, strum::Display, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, strum::Display, Eq, PartialEq, Serialize, Deserialize)]
 pub enum EmulatorSpeed {
     /// Actual speed accurate to the real hardware
     Accurate,

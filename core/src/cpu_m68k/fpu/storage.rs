@@ -2,10 +2,11 @@ use anyhow::Result;
 use arpfloat::{BigInt, Float};
 use arrayvec::ArrayVec;
 use proc_bitfield::bitfield;
+use serde::{Deserialize, Serialize};
 
 use crate::bus::{Address, Bus, IrqSource};
 use crate::cpu_m68k::{cpu::CpuM68k, CpuM68kType};
-use crate::types::Long;
+use crate::types::{Long, Word};
 
 use super::SEMANTICS_EXTENDED;
 
@@ -16,9 +17,57 @@ pub const SINGLE_SIZE: usize = 4;
 pub const DOUBLE_SIZE: usize = 8;
 pub const EXTENDED_SIZE: usize = 12;
 
+/// Serde adapter for arpfloat::Float (as M68881 extended precision float format)
+pub mod float_as_ext_real {
+    use super::*;
+    use serde::{Deserializer, Serializer};
+
+    pub fn serialize<S>(value: &Float, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let bits_ext_real: BitsExtReal = value.into();
+        bits_ext_real.serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Float, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let bits_ext_real = BitsExtReal::deserialize(deserializer)?;
+        Ok(bits_ext_real.into())
+    }
+}
+
+/// Serde adapter for [arpfloat::Float; N] (as M68881 extended precision float format)
+pub mod float_array_as_ext_real {
+    use super::*;
+    use serde::{Deserializer, Serializer};
+    use serde_big_array::BigArray;
+
+    pub fn serialize<S, const N: usize>(
+        value: &[Float; N],
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let bits_array: [BitsExtReal; N] = core::array::from_fn(|i| (&value[i]).into());
+        bits_array.serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D, const N: usize>(deserializer: D) -> Result<[Float; N], D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let bits_array: [BitsExtReal; N] = <[BitsExtReal; N]>::deserialize(deserializer)?;
+        Ok(core::array::from_fn(|i| bits_array[i].into()))
+    }
+}
+
 bitfield! {
     /// Raw (storage) bit representation of the extended-precision real format
-    #[derive(Clone, Copy, PartialEq, Eq, Default)]
+    #[derive(Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
     pub struct BitsExtReal(pub u128): Debug, FromStorage, IntoStorage, DerefStorage {
         /// f (Mantissa)
         pub f: u64 @ 0..=62,
@@ -143,8 +192,8 @@ impl From<BitsExtReal> for Float {
     }
 }
 
-impl<TBus, const ADDRESS_MASK: Address, const CPU_TYPE: CpuM68kType>
-    CpuM68k<TBus, ADDRESS_MASK, CPU_TYPE>
+impl<TBus, const ADDRESS_MASK: Address, const CPU_TYPE: CpuM68kType, const PMMU: bool>
+    CpuM68k<TBus, ADDRESS_MASK, CPU_TYPE, PMMU>
 where
     TBus: Bus<Address, u8> + IrqSource,
 {
@@ -155,6 +204,21 @@ where
         let high = self.read_ticks::<Long>(addr)?;
         let mid = self.read_ticks::<Long>(addr.wrapping_add(4))?;
         let low = self.read_ticks::<Long>(addr.wrapping_add(8))?;
+        let bits = BitsExtReal::default()
+            .with_low(low)
+            .with_mid(mid)
+            .with_high(high);
+
+        Ok(bits.into())
+    }
+
+    /// Read FPU extended precision value immediate
+    pub(in crate::cpu_m68k) fn read_fpu_extended_imm(&mut self) -> Result<Float> {
+        // Extended precision format: 96 bits (12 bytes)
+        // Read as 3 longs: sign/exponent (16 bits) + mantissa (64 bits)
+        let high = self.fetch_immediate::<Long>()?;
+        let mid = self.fetch_immediate::<Long>()?;
+        let low = self.fetch_immediate::<Long>()?;
         let bits = BitsExtReal::default()
             .with_low(low)
             .with_mid(mid)
@@ -189,6 +253,17 @@ where
         Ok(Float::from_f64(f64::from_be_bytes(v.as_slice().try_into()?)).cast(SEMANTICS_EXTENDED))
     }
 
+    /// Read FPU double precision value immediate
+    pub(in crate::cpu_m68k) fn read_fpu_double_imm(&mut self) -> Result<Float> {
+        let mut v = ArrayVec::<u8, 8>::new();
+
+        for _ in 0..4 {
+            let word = self.fetch_immediate::<Word>()?;
+            v.try_extend_from_slice(&word.to_be_bytes())?;
+        }
+        Ok(Float::from_f64(f64::from_be_bytes(v.as_slice().try_into()?)).cast(SEMANTICS_EXTENDED))
+    }
+
     /// Write FPU double precision value to memory
     pub(in crate::cpu_m68k) fn write_fpu_double(
         &mut self,
@@ -205,6 +280,18 @@ where
     /// Read FPU single precision value from memory
     pub(in crate::cpu_m68k) fn read_fpu_single(&mut self, addr: Address) -> Result<Float> {
         let raw = self.read_ticks::<Long>(addr)?;
+        Ok(Float::from_f32(f32::from_bits(raw)).cast(SEMANTICS_EXTENDED))
+    }
+
+    /// Read FPU single precision value from data register
+    pub(in crate::cpu_m68k) fn read_fpu_single_dn(&self, dn: usize) -> Result<Float> {
+        let raw = self.regs.read_d(dn);
+        Ok(Float::from_f32(f32::from_bits(raw)).cast(SEMANTICS_EXTENDED))
+    }
+
+    /// Read FPU single precision value immediate
+    pub(in crate::cpu_m68k) fn read_fpu_single_imm(&mut self) -> Result<Float> {
+        let raw = self.fetch_immediate::<Long>()?;
         Ok(Float::from_f32(f32::from_bits(raw)).cast(SEMANTICS_EXTENDED))
     }
 

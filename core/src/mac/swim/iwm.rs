@@ -9,7 +9,8 @@ use serde::{Deserialize, Serialize};
 use snow_floppy::{TrackLength, TrackType};
 
 use super::{FluxTransitionTime, Swim, SwimMode};
-use crate::{bus::Address, mac::swim::drive::DriveType, types::Byte};
+use crate::bus::Address;
+use crate::types::Byte;
 
 bitfield! {
     /// IWM handshake register
@@ -148,6 +149,10 @@ impl Swim {
                 self.iwm_status.set_mode_low(self.iwm_mode.mode_low());
                 self.iwm_status.set_enable(self.enable);
 
+                // Reading status clears the shifter
+                // (used in copy protections)
+                self.shdata = 0;
+
                 self.iwm_status.0
             }
             (false, true) => {
@@ -210,8 +215,8 @@ impl Swim {
             26, 22, 43, 57, 38, 47, 17, 28, 10, 25, 21, 37, 46, 9, 24, 45, 8, 7, 6,
         ];
 
-        if self.get_selected_drive().drive_type != DriveType::GCR400K {
-            // Only 400K drives are PWM controlled
+        if !self.get_selected_drive().drive_type.has_pwm_control() {
+            // Skip expensive calculation for non-PWM drives
             return Ok(());
         }
 
@@ -234,12 +239,6 @@ impl Swim {
 
     /// Shifts a bit into the read data shift register
     fn iwm_shift_bit(&mut self, bit: bool) {
-        if self.q6 || self.q7 {
-            // Not in read mode, clear shifter
-            self.shdata = 0;
-            return;
-        }
-
         self.shdata <<= 1;
         if bit {
             // 1 coming off the disk
@@ -286,7 +285,7 @@ impl Swim {
             // Introduce some pseudo-random jitter on the timing to emulate
             // the minor differences introduced by motor RPM instability and
             // physical movement of the disk donut.
-            let jitter = -2 + (self.cycles % 4) as i16;
+            let jitter = -3 + (self.cycles % 6) as i16;
 
             // Check bit cell window
             // TODO incorporate actual drive speed from PWM on 128K/512K?
@@ -330,7 +329,10 @@ impl Swim {
 
     fn iwm_tick_bitstream(&mut self, ticks: usize) -> Result<()> {
         assert_eq!(ticks, 1);
-        if self.cycles % self.get_selected_drive().get_ticks_per_bit() != 0 {
+        if !self
+            .cycles
+            .is_multiple_of(self.get_selected_drive().get_ticks_per_bit())
+        {
             return Ok(());
         }
 

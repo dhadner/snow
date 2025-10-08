@@ -5,7 +5,12 @@ use super::via2::Via2;
 use crate::bus::{Address, Bus, BusMember, BusResult, InspectableBus, IrqSource};
 use crate::debuggable::Debuggable;
 use crate::emulator::comm::EmulatorSpeed;
+use crate::emulator::MouseMode;
+use crate::keymap::KeyEvent;
+use crate::mac::adb::{AdbEvent, AdbKeyboard, AdbMouse};
 use crate::mac::asc::Asc;
+use crate::mac::nubus::mdc12::Mdc12;
+use crate::mac::rtc::Rtc;
 use crate::mac::scc::Scc;
 use crate::mac::scsi::controller::ScsiController;
 use crate::mac::swim::Swim;
@@ -13,13 +18,13 @@ use crate::mac::via::Via;
 use crate::mac::{MacModel, MacMonitor};
 use crate::renderer::{AudioReceiver, Renderer};
 use crate::tickable::{Tickable, Ticks};
-use crate::types::{Byte, LatchingEvent};
+use crate::types::{Byte, LatchingEvent, MouseEvent};
 
-use crate::mac::nubus::mdc12::Mdc12;
 use anyhow::Result;
 use bit_set::BitSet;
 use log::*;
 use num_traits::{FromPrimitive, PrimInt, ToBytes};
+use serde::{Deserialize, Serialize};
 
 /// Macintosh II main clock speed
 pub const CLOCK_SPEED: Ticks = 16_000_000;
@@ -27,14 +32,13 @@ pub const CLOCK_SPEED: Ticks = 16_000_000;
 /// Size of a RAM page in MacBus::ram_dirty
 pub const RAM_DIRTY_PAGESIZE: usize = 256;
 
-pub struct MacIIBus<TRenderer: Renderer> {
+#[derive(Serialize, Deserialize)]
+#[serde(bound = "")]
+pub struct MacIIBus<TRenderer: Renderer, const AMU: bool> {
     cycles: Ticks,
 
     /// The currently emulated Macintosh model
     model: MacModel,
-
-    /// Trace non-ROM/RAM access
-    pub trace: bool,
 
     rom: Vec<u8>,
     extension_rom: Vec<u8>,
@@ -62,6 +66,9 @@ pub struct MacIIBus<TRenderer: Renderer> {
     pub(crate) speed: EmulatorSpeed,
 
     /// Last vblank time (for syncing to video)
+    /// Not serializing this because it is only used for determining how long to
+    /// sleep for in Video speed mode.
+    #[serde(skip, default = "Instant::now")]
     vblank_time: Instant,
 
     /// Programmer's key pressed
@@ -70,14 +77,18 @@ pub struct MacIIBus<TRenderer: Renderer> {
     /// NuBus cards (base address: $9)
     nubus_devices: [Option<Mdc12<TRenderer>>; 6],
 
-    /// Mouse enabled
-    mouse_enabled: bool,
+    /// Mouse mode
+    mouse_mode: MouseMode,
 }
 
-impl<TRenderer> MacIIBus<TRenderer>
+impl<TRenderer, const AMU: bool> MacIIBus<TRenderer, AMU>
 where
     TRenderer: Renderer,
 {
+    /// Value to return on open bus
+    /// Certain applications (e.g. Animation Toolkit) rely on this.
+    const OPENBUS: u8 = 0;
+
     /// MTemp address, Y coordinate (16 bit, signed)
     const ADDR_MTEMP_Y: Address = 0x0828;
     /// MTemp address, X coordinate (16 bit, signed)
@@ -89,6 +100,7 @@ where
     /// CrsrNew address
     const ADDR_CRSRNEW: Address = 0x08CE;
 
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         model: MacModel,
         rom: &[u8],
@@ -96,9 +108,10 @@ where
         extension_rom: Option<&[u8]>,
         mut renderers: Vec<TRenderer>,
         monitor: MacMonitor,
-        mouse_enabled: bool,
+        mouse_mode: MouseMode,
+        ram_size: Option<usize>,
     ) -> Self {
-        let ram_size = model.ram_size();
+        let ram_size = ram_size.unwrap_or_else(|| model.ram_size_default());
 
         if extension_rom.is_some() {
             log::info!("Extension ROM present");
@@ -107,7 +120,6 @@ where
         let mut bus = Self {
             cycles: 0,
             model,
-            trace: false,
 
             rom: Vec::from(rom),
             extension_rom: extension_rom.map(Vec::from).unwrap_or_default(),
@@ -136,7 +148,7 @@ where
             nubus_devices: core::array::from_fn(|_| {
                 renderers.pop().map(|r| Mdc12::new(mdcrom, r, monitor))
             }),
-            mouse_enabled,
+            mouse_mode,
         };
 
         // Disable memory test
@@ -145,11 +157,32 @@ where
             bus.write_ram(addr, value);
         }
 
+        // Initialize ADB devices
+        bus.via1.adb.add_device(AdbMouse::new());
+        bus.via1.adb.add_device(AdbKeyboard::new());
+
         bus
     }
 
+    /// Reinstalls things that can't be serialized and does some updates upon deserialization
+    pub fn after_deserialize(&mut self, renderer: TRenderer) {
+        self.nubus_devices[0].as_mut().unwrap().renderer = Some(renderer);
+        // Make sure we have at least the last frame available
+        self.nubus_devices[0].as_mut().unwrap().render().unwrap();
+
+        self.asc.after_deserialize();
+
+        // Mark all RAM pages as dirty after deserialization to update memory display
+        self.ram_dirty
+            .extend(0..(self.ram.len() / crate::mac::compact::bus::RAM_DIRTY_PAGESIZE));
+    }
+
+    pub fn model(&self) -> MacModel {
+        self.model
+    }
+
     pub(crate) fn get_audio_channel(&self) -> AudioReceiver {
-        self.asc.receiver.clone()
+        self.asc.receiver.as_ref().unwrap().clone()
     }
 
     #[allow(clippy::needless_pass_by_value)]
@@ -174,10 +207,6 @@ where
     }
 
     fn write_overlay(&mut self, addr: Address, val: Byte) -> Option<()> {
-        if self.trace {
-            trace!("WRO {:08X} - {:02X}", addr, val);
-        }
-
         match addr {
             // 0x0000_0000 - 0x4FFF_FFFF is ROM
             0x5000_0000..=0xFFFF_FFFF => self.write_32bit(addr, val),
@@ -186,10 +215,6 @@ where
     }
 
     fn write_32bit(&mut self, addr: Address, val: Byte) -> Option<()> {
-        if self.trace && !(0x0000_0000..=0x003F_FFFF).contains(&addr) {
-            trace!("WR {:08X} - {:02X}", addr, val);
-        }
-
         match addr {
             // RAM
             0x0000_0000..=0x3FFF_FFFF => {
@@ -242,18 +267,16 @@ where
     }
 
     fn read_overlay(&mut self, addr: Address) -> Option<Byte> {
-        let result = match addr {
+        match addr {
             // ROM
-            0x0000_0000..=0x4FFF_FFFF => {
-                Some(*self.rom.get(addr as usize & self.rom_mask).unwrap_or(&0xFF))
-            }
+            0x0000_0000..=0x4FFF_FFFF => Some(
+                *self
+                    .rom
+                    .get(addr as usize & self.rom_mask)
+                    .unwrap_or(&Self::OPENBUS),
+            ),
             0x5000_0000..=0xFFFF_FFFF => self.read_32bit(addr),
-        };
-        if self.trace {
-            trace!("RDO {:08X} - {:02X?}", addr, result);
         }
-
-        result
     }
 
     fn read_24bit(&mut self, addr: Address) -> Option<Byte> {
@@ -261,13 +284,16 @@ where
     }
 
     fn read_32bit(&mut self, addr: Address) -> Option<Byte> {
-        let result = match addr {
+        match addr {
             // RAM
             0x0000_0000..=0x3FFF_FFFF => Some(self.ram[addr as usize & self.ram_mask]),
             // ROM
-            0x4000_0000..=0x4FFF_FFFF => {
-                Some(*self.rom.get(addr as usize & self.rom_mask).unwrap_or(&0xFF))
-            }
+            0x4000_0000..=0x4FFF_FFFF => Some(
+                *self
+                    .rom
+                    .get(addr as usize & self.rom_mask)
+                    .unwrap_or(&Self::OPENBUS),
+            ),
             // I/O region (repeats)
             0x5000_0000..=0x51FF_FFFF => match addr & 0x1_FFFF {
                 // VIA 1
@@ -285,7 +311,7 @@ where
                 // IWM
                 0x0001_6000..=0x0001_7FFF => self.swim.read(addr),
                 // Expansion area
-                //0x0001_8000..=0x0001_FFFF => Some(0xFF),
+                //0x0001_8000..=0x0001_FFFF => Some(Self::OPENBUS),
                 _ => None,
             },
             // Extension ROM / test area
@@ -293,7 +319,7 @@ where
                 *self
                     .extension_rom
                     .get((addr - 0x5800_0000) as usize)
-                    .unwrap_or(&0xFF),
+                    .unwrap_or(&Self::OPENBUS),
             ),
             // NuBus super slot
             0x6000_0000..=0xEFFF_FFFF => None,
@@ -310,53 +336,43 @@ where
                 }
             }
             _ => None,
-        };
-
-        if self.trace && !(0x0000_0000..=0x3FFF_FFFF).contains(&addr) {
-            trace!("RD {:08X} - {:02X?}", addr, result);
         }
-        result
     }
 
     /// Updates the mouse position (relative coordinates) and button state
-    pub fn mouse_update_rel(&mut self, relx: i16, rely: i16, _button: Option<bool>) {
-        if !self.mouse_enabled {
+    pub fn mouse_update_rel(&mut self, relx: i16, rely: i16, button: Option<bool>) {
+        if self.mouse_mode == MouseMode::Disabled {
             return;
         }
 
-        let old_x = self.read_ram::<u16>(Self::ADDR_RAWMOUSE_X);
-        let old_y = self.read_ram::<u16>(Self::ADDR_RAWMOUSE_Y);
+        if button.is_some() {
+            self.via1.adb.event(&AdbEvent::Mouse(MouseEvent {
+                button,
+                rel_movement: None,
+            }));
+        }
 
-        if !self.mouse_ready && (old_x != 15 || old_y != 15) {
-            // Wait until the boot process has initialized the mouse position so we don't
-            // interfere with the memory test.
+        if relx == 0 && rely == 0 {
             return;
         }
-        self.mouse_ready = true;
 
-        if relx != 0 || rely != 0 {
-            let new_x = old_x.wrapping_add_signed(relx);
-            let new_y = old_y.wrapping_add_signed(rely);
-
-            // Report updated mouse coordinates to OS
-            self.write_ram(Self::ADDR_MTEMP_X, new_x);
-            self.write_ram(Self::ADDR_MTEMP_Y, new_y);
-            if self.model >= MacModel::SE {
-                // SE+ needs to see even a small difference between the current (RawMouse)
-                // and new (MTemp) position, otherwise the change is ignored.
-                self.write_ram(Self::ADDR_RAWMOUSE_X, new_x - 1);
-                self.write_ram(Self::ADDR_RAWMOUSE_Y, new_y + 1);
-            } else {
-                self.write_ram(Self::ADDR_RAWMOUSE_X, new_x);
-                self.write_ram(Self::ADDR_RAWMOUSE_Y, new_y);
+        match self.mouse_mode {
+            MouseMode::Absolute => {
+                // Handled through mouse_update_abs()
             }
-            self.write_ram(Self::ADDR_CRSRNEW, 1_u8);
+            MouseMode::RelativeHw => {
+                self.via1.adb.event(&AdbEvent::Mouse(MouseEvent {
+                    button: None,
+                    rel_movement: Some((relx.into(), rely.into())),
+                }));
+            }
+            MouseMode::Disabled => unreachable!(),
         }
     }
 
     /// Updates the mouse position (absolute coordinates)
     pub fn mouse_update_abs(&mut self, x: u16, y: u16) {
-        if !self.mouse_enabled {
+        if self.mouse_mode != MouseMode::Absolute {
             return;
         }
 
@@ -403,6 +419,10 @@ where
     }
 
     fn amu_translate(&self, addr: Address) -> Address {
+        if !AMU {
+            return addr;
+        }
+
         match addr & 0xFFFFFF {
             0x00_0000..=0x7F_FFFF => addr & 0x7F_FFFF,
             0x80_0000..=0x8F_FFFF => 0x4000_0000 | (addr & 0xF_FFFF),
@@ -412,7 +432,9 @@ where
             0xC0_0000..=0xCF_FFFF => 0xFC00_0000 | (addr & 0xF_FFFF),
             0xD0_0000..=0xDF_FFFF => 0xFD00_0000 | (addr & 0xF_FFFF),
             0xE0_0000..=0xEF_FFFF => 0xFE00_0000 | (addr & 0xF_FFFF),
-            0xF0_0000..=0xFF_FFFF => 0x5000_0000 | (addr & 0xF_FFFF),
+            0xF0_0000..=0xF7_FFFF => 0x5000_0000 | (addr & 0xF_FFFF),
+            0xF8_0000..=0xF9_FFFF => 0x5800_0000 | (addr & 0x1_FFFF),
+            0xFA_0000..=0xFF_FFFF => 0x5000_0000 | (addr & 0xF_FFFF),
             _ => unreachable!(),
         }
     }
@@ -423,9 +445,18 @@ where
         }
         Ok(())
     }
+
+    /// Dispatches a key event to the keyboard
+    pub fn keyboard_event(&mut self, ke: KeyEvent) {
+        self.via1.adb.event(&AdbEvent::Key(ke));
+    }
+
+    pub fn rtc_mut(&mut self) -> &mut Rtc {
+        &mut self.via1.rtc
+    }
 }
 
-impl<TRenderer> Bus<Address, Byte> for MacIIBus<TRenderer>
+impl<TRenderer, const AMU: bool> Bus<Address, Byte> for MacIIBus<TRenderer, AMU>
 where
     TRenderer: Renderer,
 {
@@ -438,7 +469,7 @@ where
             return BusResult::WaitState;
         }
 
-        let val = if self.amu_active {
+        let val = if AMU && self.amu_active {
             self.read_24bit(addr)
         } else if self.overlay {
             self.read_overlay(addr)
@@ -449,7 +480,7 @@ where
         if let Some(v) = val {
             BusResult::Ok(v)
         } else {
-            if self.amu_active {
+            if AMU && self.amu_active {
                 warn!(
                     "Read from unimplemented address: {:06X} -> {:08X}",
                     addr & 0xFFFFFF,
@@ -458,7 +489,7 @@ where
             } else {
                 warn!("Read from unimplemented address: {:08X}", addr);
             }
-            BusResult::Ok(0xFF)
+            BusResult::Ok(Self::OPENBUS)
         }
     }
 
@@ -467,7 +498,7 @@ where
             return BusResult::WaitState;
         }
 
-        let written = if self.amu_active {
+        let written = if AMU && self.amu_active {
             self.write_24bit(addr, val)
         } else if self.overlay {
             self.write_overlay(addr, val)
@@ -485,7 +516,7 @@ where
         self.swim.intdrive = self.via1.a_out.drivesel();
 
         if written.is_none() {
-            if self.amu_active {
+            if AMU && self.amu_active {
                 warn!(
                     "Write to unimplemented address: {:06X} -> {:08X} {:02X}",
                     addr & 0xFFFFFF,
@@ -508,11 +539,15 @@ where
             if let Some((addr, value)) = self.model.disable_memtest() {
                 self.write_ram(addr, value);
             }
+
+            self.ram_dirty
+                .extend(0..(self.ram.len() / RAM_DIRTY_PAGESIZE));
         }
 
-        // Take the ADB transceiver out because that contains crossbeam channels..
-        let oldadb = std::mem::replace(&mut self.via1, Via::new(self.model)).adb;
-        let _ = std::mem::replace(&mut self.via1.adb, oldadb);
+        // Keep the RTC and ADB for PRAM and event channels
+        let Via { adb, rtc, .. } = std::mem::replace(&mut self.via1, Via::new(self.model));
+        self.via1.adb = adb;
+        self.via1.rtc = rtc;
 
         self.scc = Scc::new();
         self.via2 = Via2::new(self.model);
@@ -528,7 +563,7 @@ where
     }
 }
 
-impl<TRenderer> Tickable for MacIIBus<TRenderer>
+impl<TRenderer, const AMU: bool> Tickable for MacIIBus<TRenderer, AMU>
 where
     TRenderer: Renderer,
 {
@@ -537,7 +572,9 @@ where
         assert_eq!(ticks, 1);
         self.cycles += ticks;
 
-        self.amu_active = self.via2.ddrb.vfc3() && !self.via2.b_out.vfc3();
+        if AMU {
+            self.amu_active = self.via2.ddrb.vfc3() && !self.via2.b_out.vfc3();
+        }
 
         // The Mac II generates the VIA clock through some dividers on the logic board.
         // This same logic generates wait states when the VIAs are accessed.
@@ -551,7 +588,7 @@ where
         }
 
         // Legacy VBlank interrupt
-        if self.cycles % (CLOCK_SPEED / 60) == 0 {
+        if self.cycles.is_multiple_of(CLOCK_SPEED / 60) {
             self.via1.ifr.set_vblank(true);
 
             if self.speed == EmulatorSpeed::Video {
@@ -571,7 +608,10 @@ where
         if self.asc.get_irq() {
             self.via2.ifr.set_asc(true);
         }
-        if self.cycles % (CLOCK_SPEED / self.asc.sample_rate()) == 0 {
+        if self
+            .cycles
+            .is_multiple_of(CLOCK_SPEED / self.asc.sample_rate())
+        {
             self.asc.tick(self.speed == EmulatorSpeed::Accurate)?;
         }
 
@@ -602,7 +642,7 @@ where
     }
 }
 
-impl<TRenderer> IrqSource for MacIIBus<TRenderer>
+impl<TRenderer, const AMU: bool> IrqSource for MacIIBus<TRenderer, AMU>
 where
     TRenderer: Renderer,
 {
@@ -624,7 +664,7 @@ where
     }
 }
 
-impl<TRenderer> InspectableBus<Address, Byte> for MacIIBus<TRenderer>
+impl<TRenderer, const AMU: bool> InspectableBus<Address, Byte> for MacIIBus<TRenderer, AMU>
 where
     TRenderer: Renderer,
 {
@@ -651,7 +691,7 @@ where
     }
 }
 
-impl<TRenderer> Debuggable for MacIIBus<TRenderer>
+impl<TRenderer, const AMU: bool> Debuggable for MacIIBus<TRenderer, AMU>
 where
     TRenderer: Renderer,
 {
