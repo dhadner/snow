@@ -355,6 +355,9 @@
     <None Include="core\src\mac\scsi\target.rs">
       <Filter>core\src\mac\scsi</Filter>
     </None>
+    <None Include="core\src\mac\scsi\toolbox.rs">
+      <Filter>core\src\mac\scsi</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="core">

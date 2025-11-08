@@ -110,6 +110,7 @@
     <None Include="core\src\mac\scsi\disk.rs" />
     <None Include="core\src\mac\scsi\mod.rs" />
     <None Include="core\src\mac\scsi\target.rs" />
+    <None Include="core\src\mac\scsi\toolbox.rs" />
     <None Include="core\src\mac\swim\drive.rs" />
     <None Include="core\src\mac\swim\ffi.rs" />
     <None Include="core\src\mac\swim\ism.rs" />
