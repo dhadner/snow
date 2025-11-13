@@ -358,6 +358,768 @@
     <None Include="core\src\mac\scsi\toolbox.rs">
       <Filter>core\src\mac\scsi</Filter>
     </None>
+    <None Include="testdata\m68000\v1\ABCD.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ABCD.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ADD.b.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ADD.b.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ADD.l.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ADD.l.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ADD.w.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ADD.w.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ADDA.l.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ADDA.l.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ADDA.w.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ADDA.w.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ADDX.b.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ADDX.b.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ADDX.l.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ADDX.l.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ADDX.w.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ADDX.w.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\AND.b.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\AND.b.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\AND.l.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\AND.l.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\AND.w.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\AND.w.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ANDItoCCR.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ANDItoCCR.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ANDItoSR.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ANDItoSR.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ASL.b.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ASL.b.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ASL.l.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ASL.l.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ASL.w.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ASL.w.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ASR.b.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ASR.b.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ASR.l.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ASR.l.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ASR.w.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ASR.w.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\Bcc.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\Bcc.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\BCHG.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\BCHG.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\BCLR.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\BCLR.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\BSET.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\BSET.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\BSR.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\BSR.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\BTST.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\BTST.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\CHK.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\CHK.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\CLR.b.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\CLR.b.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\CLR.l.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\CLR.l.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\CLR.w.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\CLR.w.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\CMP.b.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\CMP.b.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\CMP.l.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\CMP.l.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\CMP.w.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\CMP.w.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\CMPA.l.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\CMPA.l.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\CMPA.w.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\CMPA.w.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\DBcc.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\DBcc.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\DIVS.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\DIVS.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\DIVU.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\DIVU.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\EOR.b.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\EOR.b.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\EOR.l.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\EOR.l.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\EOR.w.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\EOR.w.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\EORItoCCR.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\EORItoCCR.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\EORItoSR.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\EORItoSR.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\EXG.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\EXG.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\EXT.l.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\EXT.l.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\EXT.w.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\EXT.w.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ILLEGAL_LINEA.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ILLEGAL_LINEA.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ILLEGAL_LINEF.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ILLEGAL_LINEF.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\JMP.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\JMP.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\JSR.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\JSR.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\LEA.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\LEA.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\LINK.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\LINK.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\LSL.b.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\LSL.b.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\LSL.l.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\LSL.l.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\LSL.w.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\LSL.w.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\LSR.b.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\LSR.b.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\LSR.l.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\LSR.l.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\LSR.w.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\LSR.w.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\MOVE.b.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\MOVE.b.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\MOVE.l.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\MOVE.l.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\MOVE.q.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\MOVE.q.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\MOVE.w.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\MOVE.w.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\MOVEA.l.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\MOVEA.l.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\MOVEA.w.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\MOVEA.w.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\MOVEfromSR.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\MOVEfromSR.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\MOVEfromUSP.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\MOVEfromUSP.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\MOVEM.l.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\MOVEM.l.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\MOVEM.w.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\MOVEM.w.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\MOVEP.l.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\MOVEP.l.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\MOVEP.w.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\MOVEP.w.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\MOVEtoCCR.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\MOVEtoCCR.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\MOVEtoSR.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\MOVEtoSR.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\MOVEtoUSP.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\MOVEtoUSP.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\MULS.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\MULS.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\MULU.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\MULU.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\NBCD.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\NBCD.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\NEG.b.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\NEG.b.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\NEG.l.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\NEG.l.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\NEG.w.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\NEG.w.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\NEGX.b.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\NEGX.b.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\NEGX.l.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\NEGX.l.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\NEGX.w.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\NEGX.w.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\NOP.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\NOP.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\NOT.b.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\NOT.b.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\NOT.l.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\NOT.l.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\NOT.w.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\NOT.w.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\OR.b.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\OR.b.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\OR.l.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\OR.l.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\OR.w.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\OR.w.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ORItoCCR.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ORItoCCR.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ORItoSR.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ORItoSR.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\PEA.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\PEA.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\RESET.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\RESET.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ROL.b.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ROL.b.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ROL.l.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ROL.l.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ROL.w.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ROL.w.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ROR.b.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ROR.b.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ROR.l.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ROR.l.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ROR.w.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ROR.w.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ROXL.b.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ROXL.b.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ROXL.l.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ROXL.l.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ROXL.w.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ROXL.w.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ROXR.b.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ROXR.b.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ROXR.l.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ROXR.l.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ROXR.w.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\ROXR.w.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\RTE.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\RTE.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\RTR.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\RTR.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\RTS.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\RTS.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\SBCD.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\SBCD.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\Scc.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\Scc.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\STOP.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\STOP.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\SUB.b.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\SUB.b.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\SUB.l.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\SUB.l.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\SUB.w.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\SUB.w.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\SUBA.l.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\SUBA.l.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\SUBA.w.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\SUBA.w.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\SUBX.b.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\SUBX.b.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\SUBX.l.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\SUBX.l.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\SUBX.w.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\SUBX.w.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\SWAP.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\SWAP.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\TAS.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\TAS.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\TRAP.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\TRAP.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\TRAPV.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\TRAPV.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\TST.b.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\TST.b.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\TST.l.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\TST.l.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\TST.w.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\TST.w.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\UNLINK.json">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
+    <None Include="testdata\m68000\v1\UNLINK.json.bin">
+      <Filter>testdata\m68000\v1</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="core">
@@ -443,6 +1205,15 @@
     </Filter>
     <Filter Include="core\src\mac\scsi">
       <UniqueIdentifier>{565028ef-0d86-4118-8d00-eb3161fc88c7}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="testdata">
+      <UniqueIdentifier>{913f4821-1c59-4de7-aee0-1025f12414fc}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="testdata\m68000">
+      <UniqueIdentifier>{4cfa31ed-370e-47d7-b07c-326d4320597e}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="testdata\m68000\v1">
+      <UniqueIdentifier>{02b3b32a-e2af-4ea4-bb64-57c30675d0de}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
 </Project>
