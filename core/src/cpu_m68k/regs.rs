@@ -106,6 +106,58 @@ bitfield! {
     }
 }
 
+/// Smaller register file which only contains what is needed to restart instructions
+/// after an exception.
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, Default)]
+pub struct RestartRegisterFile {
+    /// Dx
+    pub d: [Long; 8],
+
+    /// Ax
+    pub a: [Long; 7],
+
+    /// User Stack Pointer
+    pub usp: Address,
+
+    /// Supervisor Stack Pointer (68000) / Interrupt Stack Pointer (68020+)
+    pub isp: Address,
+
+    /// Status Register
+    pub sr: RegisterSR,
+
+    /// Program counter
+    pub pc: Address,
+
+    /// Master Stack Pointer (68020+)
+    pub msp: Address,
+}
+
+impl From<&RegisterFile> for RestartRegisterFile {
+    fn from(value: &RegisterFile) -> Self {
+        Self {
+            d: value.d,
+            a: value.a,
+            usp: value.usp,
+            isp: value.isp,
+            sr: value.sr,
+            pc: value.pc,
+            msp: value.msp,
+        }
+    }
+}
+
+impl RestartRegisterFile {
+    pub fn restore(self, reg: &mut RegisterFile) {
+        reg.d = self.d;
+        reg.a = self.a;
+        reg.usp = self.usp;
+        reg.isp = self.isp;
+        reg.sr = self.sr;
+        reg.pc = self.pc;
+        reg.msp = self.msp;
+    }
+}
+
 /// Full Motorola 680x0 register file
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, Default)]
 pub struct RegisterFile {
@@ -332,7 +384,7 @@ impl RegisterFile {
             Register::SFC => self.sfc = value.expand() & 0b111,
             Register::VBR => self.vbr = value.expand(),
             Register::CAAR => self.caar = value.expand(),
-            Register::CACR => self.cacr.0 = value.expand() & 0b1111,
+            Register::CACR => self.cacr.0 = value.expand(),
             Register::MSP => self.msp = value.expand(),
             Register::ISP => self.isp = value.expand(),
             Register::FPCR => self.fpu.fpcr.0 = value.expand(),

@@ -4,13 +4,44 @@ use std::io::BufReader;
 use std::path::{Path, PathBuf};
 
 use crate::emulator::{EmulatorInitArgs, ScsiTarget};
+use crate::shader_pipeline::ShaderConfig;
 use crate::util::relativepath::RelativePath;
 use crate::widgets::framebuffer::ScalingAlgorithm;
 use anyhow::{Context, Result};
 use eframe::egui;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use snow_core::mac::scsi::target::ScsiTargetType;
 use snow_core::mac::MacModel;
+
+/// Custom deserializer that skips invalid shader configs instead of failing entirely
+fn deserialize_shader_configs_lenient<'de, D>(
+    deserializer: D,
+) -> Result<Vec<ShaderConfig>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let values: Vec<serde_json::Value> = Vec::deserialize(deserializer)?;
+    let mut configs = Vec::new();
+
+    for (i, value) in values.into_iter().enumerate() {
+        match serde_json::from_value::<ShaderConfig>(value) {
+            Ok(config) => configs.push(config),
+            Err(e) => {
+                log::warn!("Skipping invalid shader config at index {}: {}", i, e);
+            }
+        }
+    }
+
+    Ok(configs)
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum FramebufferMode {
+    CenteredHorizontally,
+    #[default]
+    Centered,
+    Detached,
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub enum WorkspaceScsiTarget {
@@ -18,6 +49,9 @@ pub enum WorkspaceScsiTarget {
     None,
     Disk(RelativePath),
     Cdrom,
+    // Do not feature gate Ethernet here to avoid problems with loading
+    // workspaces on builds without the ethernet feature
+    Ethernet,
 }
 
 impl TryFrom<ScsiTarget> for WorkspaceScsiTarget {
@@ -29,6 +63,8 @@ impl TryFrom<ScsiTarget> for WorkspaceScsiTarget {
                 Self::Disk(RelativePath::from_absolute(&value.image_path.ok_or(())?))
             }
             ScsiTargetType::Cdrom => Self::Cdrom,
+            #[cfg(feature = "ethernet")]
+            ScsiTargetType::Ethernet => Self::Ethernet,
         })
     }
 }
@@ -61,6 +97,16 @@ impl Into<ScsiTarget> for WorkspaceScsiTarget {
                 target_type: Some(ScsiTargetType::Disk),
                 image_path: Some(p.get_absolute()),
             },
+            #[cfg(feature = "ethernet")]
+            Self::Ethernet => ScsiTarget {
+                target_type: Some(ScsiTargetType::Ethernet),
+                image_path: None,
+            },
+            #[cfg(not(feature = "ethernet"))]
+            Self::Ethernet => ScsiTarget {
+                target_type: None,
+                image_path: None,
+            },
         }
     }
 }
@@ -86,7 +132,11 @@ pub struct Workspace {
     pub systrap_history_open: bool,
     pub peripheral_debug_open: bool,
     pub terminal_open: [bool; 2],
-    pub center_viewport_v: bool,
+
+    /// Deprecated
+    #[serde(skip_serializing)]
+    center_viewport_v: bool,
+
     pub viewport_scale: f32,
 
     /// Last opened Mac ROM
@@ -129,12 +179,33 @@ pub struct Workspace {
 
     /// Shared directory for BlueSCSI toolbox
     shared_dir: Option<RelativePath>,
+
+    /// Show labels in disassembly
+    pub disassembly_labels: bool,
+
+    /// Floppy disk images to auto-insert on workspace load
+    floppy_images: Vec<RelativePath>,
+
+    /// Custom date/time to set the RTC to on startup.
+    /// Format: "YYYY-MM-DD" or "YYYY-MM-DD HH:MM:SS"
+    /// Useful for testing date-dependent software (e.g., easter eggs).
+    pub custom_datetime: Option<String>,
+
+    /// Framebuffer positioning mode
+    pub framebuffer_mode: FramebufferMode,
+
+    /// CRT shader enabled
+    pub shader_enabled: bool,
+
+    /// Shader pipeline configuration
+    #[serde(deserialize_with = "deserialize_shader_configs_lenient")]
+    pub shader_configs: Vec<ShaderConfig>,
 }
 
 impl Default for Workspace {
     fn default() -> Self {
         Self {
-            viewport_scale: 1.5,
+            viewport_scale: 2.0,
             log_open: false,
             disassembly_open: false,
             registers_open: false,
@@ -159,6 +230,12 @@ impl Default for Workspace {
             scaling_algorithm: ScalingAlgorithm::Linear,
             pause_on_state_load: false,
             shared_dir: None,
+            disassembly_labels: true,
+            floppy_images: Vec::new(),
+            custom_datetime: None,
+            framebuffer_mode: FramebufferMode::default(),
+            shader_enabled: false,
+            shader_configs: Vec::new(),
         }
     }
 }
@@ -175,6 +252,7 @@ impl Workspace {
         "Instruction history",
         "System trap history",
         "Peripherals",
+        "Display",
     ];
 
     pub fn from_file(path: &Path) -> Result<Self> {
@@ -201,7 +279,9 @@ impl Workspace {
         for d in &mut result.scsi_targets {
             match d {
                 WorkspaceScsiTarget::Disk(ref mut p) => p.after_deserialize(parent)?,
-                WorkspaceScsiTarget::None | WorkspaceScsiTarget::Cdrom => (),
+                WorkspaceScsiTarget::None
+                | WorkspaceScsiTarget::Cdrom
+                | WorkspaceScsiTarget::Ethernet => (),
             }
         }
         for (i, d) in result.disks.iter_mut().enumerate() {
@@ -213,6 +293,17 @@ impl Workspace {
             }
         }
         result.disks = core::array::from_fn(|_| None);
+
+        for p in &mut result.floppy_images {
+            p.after_deserialize(parent)?;
+        }
+
+        // Migrate old framebuffer positioning fields to new enum
+        if result.center_viewport_v {
+            result.framebuffer_mode = FramebufferMode::Centered;
+        } else {
+            result.framebuffer_mode = FramebufferMode::CenteredHorizontally;
+        }
 
         Ok(result)
     }
@@ -239,8 +330,13 @@ impl Workspace {
         for d in &mut self.scsi_targets {
             match d {
                 WorkspaceScsiTarget::Disk(ref mut p) => p.before_serialize(parent)?,
-                WorkspaceScsiTarget::None | WorkspaceScsiTarget::Cdrom => (),
+                WorkspaceScsiTarget::None
+                | WorkspaceScsiTarget::Cdrom
+                | WorkspaceScsiTarget::Ethernet => (),
             }
+        }
+        for p in &mut self.floppy_images {
+            p.before_serialize(parent)?;
         }
 
         let file = File::create(path)?;
@@ -293,6 +389,13 @@ impl Workspace {
 
     pub fn get_shared_dir(&self) -> Option<PathBuf> {
         self.shared_dir.clone().map(|d| d.get_absolute())
+    }
+
+    pub fn get_floppy_images(&self) -> Vec<PathBuf> {
+        self.floppy_images
+            .iter()
+            .map(|p| p.get_absolute())
+            .collect()
     }
 
     /// Persists a window location

@@ -4,11 +4,10 @@ use anyhow::{bail, Context, Result};
 #[cfg(feature = "mmap")]
 use memmap2::MmapMut;
 use serde::{Deserialize, Serialize};
-use std::fs::File;
-use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 
+use crate::debuggable::Debuggable;
 use crate::mac::scsi::target::ScsiTarget;
 use crate::mac::scsi::target::ScsiTargetType;
 use crate::mac::scsi::ScsiCmdResult;
@@ -90,10 +89,9 @@ impl ScsiTargetDisk {
     #[cfg(feature = "mmap")]
     fn mmap_file(filename: &Path) -> Result<MmapMut> {
         use fs2::FileExt;
-        use std::{
-            fs::OpenOptions,
-            io::{Seek, SeekFrom},
-        };
+        use std::fs::OpenOptions;
+        use std::io::{Seek, SeekFrom};
+
         if !Path::new(filename).exists() {
             bail!("File not found: {}", filename.display());
         }
@@ -183,8 +181,6 @@ impl ScsiTarget for ScsiTargetDisk {
             0x01 => {
                 // Read/write error recovery page
                 Some(vec![
-                    0x01,        // Page code
-                    0x0A,        // Page length
                     0b1100_0000, // DCR, DTE, PER, EER, RC, TB, ARRE, AWRE
                     8,           // Read retry count
                     0,           // Correction span
@@ -200,29 +196,25 @@ impl ScsiTarget for ScsiTargetDisk {
             0x02 => {
                 // Disconnect-reconnect page
                 Some(vec![
-                    0x02, // Page code
-                    0x0E, // Page length
-                    0,    // Buffer full ratio
-                    0,    // Buffer empty ratio
-                    0,    // Bus inactivity limit (MSB)
-                    0,    // Bus inactivity limit (LSB)
-                    0,    // Disconnect time limit (MSB)
-                    0,    // Disconnect time limit (LSB)
-                    0,    // Connect time limit (MSB)
-                    0,    // Connect time limit (LSB)
-                    0,    // Maximum burst size (MSB)
-                    0,    // Maximum burst size (LSB)
-                    0,    // DID, DTDC
-                    0,    // Reserved
-                    0,    // Reserved
-                    0,    // Reserved
+                    0, // Buffer full ratio
+                    0, // Buffer empty ratio
+                    0, // Bus inactivity limit (MSB)
+                    0, // Bus inactivity limit (LSB)
+                    0, // Disconnect time limit (MSB)
+                    0, // Disconnect time limit (LSB)
+                    0, // Connect time limit (MSB)
+                    0, // Connect time limit (LSB)
+                    0, // Maximum burst size (MSB)
+                    0, // Maximum burst size (LSB)
+                    0, // DID, DTDC
+                    0, // Reserved
+                    0, // Reserved
+                    0, // Reserved
                 ])
             }
             0x03 => {
                 // Format device page
                 Some(vec![
-                    0x03,                          // Page code
-                    0x16,                          // Page length
                     0,                             // Reserved
                     0,                             // Reserved
                     0,                             // Tracks per zone (MSB)
@@ -327,6 +319,9 @@ impl ScsiTarget for ScsiTargetDisk {
 
     #[cfg(feature = "mmap")]
     fn branch_media(&mut self, path: &Path) -> Result<()> {
+        use std::fs::File;
+        use std::io::Write;
+
         // Create a fresh disk file
         {
             let mut f = File::create(path)?;
@@ -340,5 +335,21 @@ impl ScsiTarget for ScsiTargetDisk {
     #[cfg(not(feature = "mmap"))]
     fn branch_media(&mut self, _path: &Path) -> Result<()> {
         bail!("Requires 'mmap' feature");
+    }
+
+    #[cfg(feature = "ethernet")]
+    fn eth_set_link(&mut self, _link: super::ethernet::EthernetLinkType) -> Result<()> {
+        unreachable!()
+    }
+
+    #[cfg(feature = "ethernet")]
+    fn eth_link(&self) -> Option<super::ethernet::EthernetLinkType> {
+        None
+    }
+}
+
+impl Debuggable for ScsiTargetDisk {
+    fn get_debug_properties(&self) -> crate::debuggable::DebuggableProperties {
+        vec![]
     }
 }

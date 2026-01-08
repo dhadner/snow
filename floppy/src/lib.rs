@@ -78,7 +78,7 @@ impl FloppyType {
                 64..=79 => 49760,
                 _ => unreachable!(),
             },
-            Self::Mfm144M => 192992,
+            Self::Mfm144M => 200000,
         }
     }
 
@@ -358,9 +358,7 @@ impl Floppy for FloppyImage {
 
     fn get_write_protect(&self) -> bool {
         // TODO write-protected until write is implemented for flux
-        // and SuperDrive
         self.force_wp
-            || self.get_type() == FloppyType::Mfm144M
             || self
                 .flux_trackdata
                 .iter()
