@@ -228,6 +228,10 @@ where
         self.model
     }
 
+    pub fn get_effective_speed(&self) -> f64 {
+        self.via.rtc.effective_speed()
+    }
+
     pub(crate) fn get_audio_channel(&self) -> AudioReceiver {
         self.audio.receiver.as_ref().unwrap().clone()
     }
@@ -641,7 +645,7 @@ where
         BusResult::Ok(val)
     }
 
-    fn reset(&mut self, hard: bool) -> Result<()> {
+    fn reset(&mut self, hard: bool) -> Result<bool> {
         if hard {
             // Clear RAM
             self.ram.fill(0);
@@ -653,17 +657,17 @@ where
 
             self.ram_dirty
                 .extend(0..(self.ram.len() / RAM_DIRTY_PAGESIZE));
-
-            self.overlay = true;
         }
 
         // Keep the RTC and ADB for PRAM and event channels
         let Via { adb, rtc, .. } = std::mem::replace(&mut self.via, Via::new(self.model));
         self.via.adb = adb;
         self.via.rtc = rtc;
-
+        self.overlay = true;
         self.scc = Scc::new();
-        Ok(())
+
+        // All compact Macs have RESET and HALT tied together
+        Ok(true)
     }
 }
 

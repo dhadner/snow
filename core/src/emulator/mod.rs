@@ -187,6 +187,7 @@ dispatch! {
         fn cpu_breakpoints(&self) -> &[Breakpoint] { breakpoints() }
         fn cpu_get_step_over(&self) -> Option<Address> { get_step_over() }
         fn speed(&self) -> EmulatorSpeed { bus.speed }
+        fn effective_speed(&self) -> f64 { bus.get_effective_speed() }
         fn debug_properties(&self) -> DebuggableProperties { bus.get_debug_properties() }
         fn get_audio_channel(&self) -> AudioReceiver { bus.get_audio_channel() }
     }
@@ -207,7 +208,7 @@ dispatch! {
         fn cpu_prefetch_refill(&mut self) -> Result<()> { prefetch_refill() }
         fn cpu_reset(&mut self) -> Result<()> { reset() }
 
-        fn bus_reset(&mut self) -> Result<()> { bus.reset(true) }
+        fn bus_reset(&mut self) -> Result<bool> { bus.reset(true) }
         fn after_deserialize(&mut self, renderer: ChannelRenderer) -> () { bus.after_deserialize(renderer) }
         fn bus_write(&mut self, addr: Address, val: Byte) -> crate::bus::BusResult<Byte> { bus.write(addr, val) }
         fn bus_inspect_read(&mut self, addr: Address) -> Option<Byte> { bus.inspect_read(addr) }
@@ -589,6 +590,7 @@ impl Emulator {
                         })
                 }),
                 speed: self.config.speed(),
+                effective_speed: self.config.effective_speed(),
             })))?;
 
         // Next code stream for disassembly listing

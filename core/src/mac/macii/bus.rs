@@ -270,6 +270,10 @@ where
         self.model
     }
 
+    pub fn get_effective_speed(&self) -> f64 {
+        self.via1.rtc.effective_speed()
+    }
+
     pub(crate) fn get_audio_channel(&self) -> AudioReceiver {
         self.asc.receiver.as_ref().unwrap().clone()
     }
@@ -681,7 +685,7 @@ where
         BusResult::Ok(val)
     }
 
-    fn reset(&mut self, hard: bool) -> Result<()> {
+    fn reset(&mut self, hard: bool) -> Result<bool> {
         if hard {
             // Clear RAM
             self.ram.fill(0);
@@ -710,7 +714,7 @@ where
         self.amu_active = false;
         self.mouse_ready = false;
         self.overlay = true;
-        Ok(())
+        Ok(false)
     }
 }
 
