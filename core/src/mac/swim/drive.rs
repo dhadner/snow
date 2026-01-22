@@ -144,9 +144,11 @@ enum DriveReg {
     /// Tachometer
     /// 60 pulses/revolution
     TACH = 0b0111,
-    /// Read data, low head
+    /// Read data, low head (GCR)
+    /// Index pulse (MFM), active low
     RDDATA0 = 0b1000,
-    /// Read data, upper head
+    /// Read data, upper head (GCR)
+    /// Index pulse (MFM), active low
     RDDATA1 = 0b1001,
     /// SuperDrive
     SUPERDRIVE = 0b1010,
@@ -211,7 +213,7 @@ enum DriveWriteReg {
 pub(crate) struct FloppyDrive {
     idx: usize,
     base_frequency: Ticks,
-    pub(super) drive_type: DriveType,
+    pub(crate) drive_type: DriveType,
     pub(super) cycles: Ticks,
 
     pub(crate) floppy_inserted: bool,
@@ -245,6 +247,12 @@ pub(crate) struct FloppyDrive {
     pub(super) pwm_avg_sum: i64,
     pub(super) pwm_avg_count: usize,
     pub(super) pwm_dutycycle: Ticks,
+
+    /// RPM adjustment for PWM-controlled drives
+    pub(crate) rpm_adjustment: i32,
+
+    /// Cached ticks-per-bit
+    ticks_per_bit: Ticks,
 }
 
 impl FloppyDrive {
@@ -281,6 +289,8 @@ impl FloppyDrive {
             pwm_avg_sum: 0,
             pwm_avg_count: 0,
             pwm_dutycycle: 0,
+            rpm_adjustment: 0,
+            ticks_per_bit: Ticks::MAX,
         }
     }
 
@@ -292,6 +302,17 @@ impl FloppyDrive {
     /// Returns true if drive's spindle motor is running
     pub(super) fn is_running(&self) -> bool {
         self.floppy_inserted && self.motor
+    }
+
+    /// Returns true if disk is at index (MFM only)
+    #[inline(always)]
+    pub(super) fn at_index(&self) -> bool {
+        debug_assert!(self.mfm);
+
+        // Disk spins at 300rpm, 200000 bits, index pulse ~2ms
+        // 300 / 60 = 5 revs/sec * 200000 bits = 1.000.000 bits/sec
+        // = ~2000 bits pulse length
+        self.is_running() && (0..2000).contains(&self.track_position)
     }
 
     /// Reads from the currently selected drive register
@@ -316,14 +337,10 @@ impl FloppyDrive {
             DriveReg::TKO => true,
             DriveReg::STEP => self.stepping == 0,
             DriveReg::TACH => self.get_tacho(),
+            DriveReg::RDDATA0 | DriveReg::RDDATA1 if self.mfm && self.motor => !self.at_index(),
             DriveReg::RDDATA0 => self.get_head_bit(0),
-            DriveReg::RDDATA1 => {
-                if self.motor {
-                    self.get_head_bit(1)
-                } else {
-                    self.drive_type.io_rddata1()
-                }
-            }
+            DriveReg::RDDATA1 if self.motor => self.get_head_bit(1),
+            DriveReg::RDDATA1 => self.drive_type.io_rddata1(),
             DriveReg::MFM => self.mfm,
             DriveReg::SUPERDRIVE => self.drive_type.io_superdrive(),
             DriveReg::WRTPRT => !self.floppy.get_write_protect(),
@@ -407,6 +424,8 @@ impl FloppyDrive {
                 warn!("Unimplemented register write {:?} {:0b}", reg, regraw);
             }
         }
+
+        self.update_ticks_per_bit();
     }
 
     /// Inserts a disk into the disk drive
@@ -444,10 +463,13 @@ impl FloppyDrive {
             if self.pwm_dutycycle < DUTY_T0 {
                 return 0;
             }
-            ((self.pwm_dutycycle - DUTY_T0) * (SPEED_T79 * 100 + SPEED_T0 * 100)
+            let base_rpm = ((self.pwm_dutycycle - DUTY_T0) * (SPEED_T79 * 100 + SPEED_T0 * 100)
                 / (DUTY_T79 - DUTY_T0))
                 / 100
-                + SPEED_T0
+                + SPEED_T0;
+
+            // Apply RPM adjustment only for PWM-controlled drives
+            (base_rpm as i32 + self.rpm_adjustment).max(0) as Ticks
         } else {
             // Macintosh CLV
             // Automatic spindle motor speed control
@@ -466,13 +488,18 @@ impl FloppyDrive {
 
     /// Gets the amount of ticks a physical bit is under the drive head
     pub fn get_ticks_per_bit(&self) -> Ticks {
-        if self.get_track_rpm() == 0 || !self.floppy_inserted {
-            return Ticks::MAX;
+        self.ticks_per_bit
+    }
+
+    fn update_ticks_per_bit(&mut self) {
+        self.ticks_per_bit = if self.get_track_rpm() == 0 || !self.floppy_inserted {
+            Ticks::MAX
+        } else {
+            ((self.base_frequency * 60)
+                / self.get_track_rpm()
+                / self.floppy.get_type().get_approx_track_length(self.track))
+                + 1
         }
-        ((self.base_frequency * 60)
-            / self.get_track_rpm()
-            / self.floppy.get_type().get_approx_track_length(self.track))
-            + 1
     }
 
     /// Gets the current state of the TACH (spindle motor tachometer) signal
@@ -563,6 +590,7 @@ impl Debuggable for FloppyDrive {
             dbgprop_udec!("Head stepping timer", self.stepping),
             dbgprop_udec!("Track", self.track),
             dbgprop_udec!("Track position", self.track_position),
+            dbgprop_bool!("Index signal", self.mfm && self.at_index()),
             dbgprop_udec!("Track RPM", self.get_track_rpm()),
             dbgprop_udec!("Ticks per bit", self.get_ticks_per_bit()),
             dbgprop_sdec!("Flux transition len", self.flux_ticks.into()),

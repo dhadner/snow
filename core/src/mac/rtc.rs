@@ -60,6 +60,16 @@ pub struct Rtc {
     data_out: Option<u8>,
 
     data: RtcData,
+
+    // Computed on the fly, no need to save the state.
+    #[serde(skip, default = "default_effective_speed")]
+    effective_speed: f64,
+    #[serde(skip)]
+    last_second_real_time_ms: Option<i64>,
+}
+
+fn default_effective_speed() -> f64 {
+    1.0
 }
 
 #[derive(Serialize, Deserialize)]
@@ -175,6 +185,8 @@ impl Default for Rtc {
                 seconds,
                 pram: RtcData::empty_pram(),
             },
+            effective_speed: 1.0,
+            last_second_real_time_ms: Some(Local::now().timestamp_millis()),
         }
     }
 }
@@ -194,10 +206,35 @@ impl Rtc {
         self.data.pram = pram;
     }
 
+    /// Sets the RTC to a specific date/time.
+    /// This can be used to test date-dependent software behavior (e.g., easter eggs).
+    pub fn set_datetime(&mut self, dt: chrono::NaiveDateTime) {
+        let mac_epoch = NaiveDate::from_ymd_opt(1904, 1, 1)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap();
+        self.data.seconds = dt.signed_duration_since(mac_epoch).num_seconds() as u32;
+        self.last_second_real_time_ms = Some(Local::now().timestamp_millis());
+    }
+
     /// Pokes the RTC that one second has passed
     /// In the emulator, one second interrupt is driven by the VIA for ease.
     pub fn second(&mut self) {
         self.data.seconds = self.data.seconds.wrapping_add(1);
+
+        let now_ms = Local::now().timestamp_millis();
+        if let Some(last_ms) = self.last_second_real_time_ms {
+            let real_elapsed_secs = (now_ms - last_ms) as f64 / 1000.0;
+            if real_elapsed_secs > 0.0 {
+                let instantaneous = 1.0 / real_elapsed_secs;
+                self.effective_speed = self.effective_speed.mul_add(0.8, instantaneous * 0.2);
+            }
+        }
+        self.last_second_real_time_ms = Some(now_ms);
+    }
+
+    pub fn effective_speed(&self) -> f64 {
+        self.effective_speed
     }
 
     /// Updates RTC I/O lines from the VIA.
@@ -316,12 +353,10 @@ impl Rtc {
     fn cmd_read(&mut self, cmd: u8) {
         let scmd = (cmd >> 2) & 0b11111;
         self.data_out = Some(match scmd {
-            // Force AppleTalk to OFF to prevent freezing on the SCC during boot
-            // for System 6.x+
-            // Since this value is cached in RAM, an extra reboot may be required if
-            // PRAM is cleared.
-            0x13 => 0x22,
-
+            // NOTE: Previously forced AppleTalk OFF (0x22) to prevent freezing on the SCC
+            // during boot for System 6.x+. Disabled to allow LocalTalk networking.
+            // If boot freezes occur, this may need to be re-enabled or made configurable.
+            // Original hack: 0x13 => 0x22,
             0x00 | 0x04 => self.data.seconds as u8,
             0x01 | 0x05 => (self.data.seconds >> 8) as u8,
             0x02 | 0x06 => (self.data.seconds >> 16) as u8,
