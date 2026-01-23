@@ -62,6 +62,7 @@ impl AdbTransceiver {
         self.devices.push(Box::new(device));
     }
 
+    /// Called when reading RegisterB (ADB interrupt bit)
     pub fn get_int(&self) -> bool {
         // The INT line has a different meaning in each phase.
         // In Data1, it signals that the command response has ended or that the
@@ -77,11 +78,13 @@ impl AdbTransceiver {
         }
     }
 
-    /// A device has asserted Service Request
+    /// A device has asserted Service Request.
+    /// Called when reading RegisterB (ADB interrupt bit)
     fn device_has_srq(&self) -> bool {
         self.devices.iter().any(|d| d.get_srq())
     }
 
+    /// Called when writing to RegisterB
     pub fn io(&mut self, st0: bool, st1: bool) -> Option<u8> {
         let newstate = AdbBusState::from_io(st0, st1);
 
@@ -119,6 +122,7 @@ impl AdbTransceiver {
         }
     }
 
+    /// Called when VIA SR has data ready for the ADB
     pub fn data_in(&mut self, data: u8) {
         if self.state == AdbBusState::Command && self.cmd.is_empty() {
             // New command, clear response buffer
@@ -130,6 +134,8 @@ impl AdbTransceiver {
     /// Process a received ADB command.
     ///
     ///  * `finish` - set if the bus state transitioned out of data in/out.
+    /// Called when transitioning to Command state or to Data1/Data2 with a 
+    /// non-empty command buffer.
     fn process_cmd(&mut self, finish: bool) -> bool {
         let address = self.cmd[0] >> 4;
         let cmd = (self.cmd[0] >> 2) & 3;
