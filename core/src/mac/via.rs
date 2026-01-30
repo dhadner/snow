@@ -16,6 +16,8 @@ use super::MacModel;
 /// (counted on the E Clock)
 const ONESEC_TICKS: Ticks = 783360;
 
+/// SR shift in/out delay or 3 ms once ACR shift mode or SR is set.  Assumes OS
+/// and ADB transceiver delays of about 2.936 ms after setting ACR or SR.
 const SHIFT_DELAY: Ticks = ONESEC_TICKS * 3 / 1000;
 
 const ACR_SHIFT_OUT: u8 = 0b111;
@@ -436,7 +438,7 @@ impl BusMember<Address> for Via {
                 if self.acr.kbd() == ACR_SHIFT_OUT {
                     // Start shift-out
                     self.kbdshift_out = val;
-                    self.kbdshift_out_time = SHIFT_DELAY;
+                    self.kbdshift_out_time = SHIFT_DELAY; // 3 ms - simulates ADB CB1 clock
                 }
                 Some(())
             }
@@ -478,10 +480,10 @@ impl BusMember<Address> for Via {
                     self.kbdshift_out_time = 0;
                 }
                 if newacr.kbd() == ACR_SHIFT_IN {
-                    self.kbdshift_in_time = SHIFT_DELAY;
+                    self.kbdshift_in_time = SHIFT_DELAY;  // 3 ms 
                 } else if newacr.kbd() == ACR_SHIFT_OUT {
                     self.kbdshift_out = self.sr;
-                    self.kbdshift_out_time = SHIFT_DELAY;
+                    self.kbdshift_out_time = SHIFT_DELAY; // 3 ms
                 }
 
                 Some(self.acr.0 = val)
@@ -523,7 +525,11 @@ impl BusMember<Address> for Via {
     }
 }
 
+
 impl Tickable for Via {
+    /// Called at 1.25 us interval (8 MHz / 10 = 0.8 MHz) with ticks = 1
+    ///   Actually, the ONESEC_TICKS value of 783,360 works out to a 1.27655 us interval,
+    ///   or 7.83360 MHz rather than 8 MHz.  Not sure why.
     fn tick(&mut self, ticks: Ticks) -> Result<Ticks> {
         // This is ticked on the E Clock
         self.onesec += ticks;
@@ -582,7 +588,7 @@ impl Tickable for Via {
                 self.sr = self.kbdshift_in;
                 self.ifr.set_kbdready(true);
                 self.kbdshift_in = self.sr;
-                self.kbdshift_in_time = SHIFT_DELAY;
+                self.kbdshift_in_time = SHIFT_DELAY; // 3 ms (ONESEC_TICKS * 3 / 1000)
             }
         }
 
