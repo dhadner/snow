@@ -18,6 +18,7 @@ use crate::dbgprop_byte;
 use crate::debuggable::Debuggable;
 use crate::mac::scsi::cdrom::ScsiTargetCdrom;
 use crate::mac::scsi::disk::ScsiTargetDisk;
+use crate::mac::scsi::disk_image::DiskImage;
 #[cfg(feature = "ethernet")]
 use crate::mac::scsi::ethernet::ScsiTargetEthernet;
 use crate::mac::scsi::scsi_cmd_len;
@@ -243,9 +244,37 @@ impl ScsiController {
         Ok(())
     }
 
+    /// Attaches a disk backed by a custom disk image at the given SCSI ID.
+    pub(crate) fn attach_disk_image_at(
+        &mut self,
+        image: Box<dyn DiskImage>,
+        scsi_id: usize,
+    ) -> Result<()> {
+        if scsi_id >= Self::MAX_TARGETS {
+            bail!("SCSI ID out of range: {}", scsi_id);
+        }
+        self.targets[scsi_id] = Some(Box::new(ScsiTargetDisk::new(image)));
+        Ok(())
+    }
+
     /// Attaches a CD-ROM drive at the given SCSI ID
     pub fn attach_cdrom_at(&mut self, scsi_id: usize) {
         self.targets[scsi_id] = Some(Box::new(ScsiTargetCdrom::default()));
+    }
+
+    /// Inserts a CD-ROM with the custom disk image at the given SCSI ID.
+    pub fn insert_cdrom_image_at(
+        &mut self,
+        image: Box<dyn DiskImage>,
+        scsi_id: usize,
+    ) -> Result<()> {
+        if scsi_id >= Self::MAX_TARGETS {
+            bail!("SCSI ID out of range: {}", scsi_id);
+        }
+        let Some(target) = self.targets[scsi_id].as_mut() else {
+            bail!("No target attached at SCSI ID {}", scsi_id);
+        };
+        target.load_image(image)
     }
 
     /// Attaches an Ethernet adapter at the given SCSI ID

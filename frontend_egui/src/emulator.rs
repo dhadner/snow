@@ -24,7 +24,7 @@ use snow_core::mac::scsi::target::ScsiTargetType;
 use snow_core::mac::serial_bridge::{SerialBridgeConfig, SerialBridgeStatus};
 use snow_core::mac::swim::drive::DriveType;
 use snow_core::mac::{ExtraROMs, MacModel, MacMonitor};
-use snow_core::renderer::DisplayBuffer;
+use snow_core::renderer::{ChannelAudioSink, DisplayBuffer};
 use snow_core::tickable::{Tickable, Ticks};
 use snow_core::types::LatchingEvent;
 use snow_floppy::loaders::FloppyImageLoader;
@@ -324,20 +324,31 @@ impl EmulatorState {
         // Initialize audio
         if audio_disabled {
             cmd.send(EmulatorCommand::SetSpeed(EmulatorSpeed::Video))?;
-        } else if self.audiosink.is_none() {
-            match SDLAudioSink::new(emulator.get_audio()) {
-                Ok((sink, exch)) => {
-                    self.audiosink = Some(sink);
-                    self.audiosink_exchange = Some(exch);
-                }
-                Err(e) => {
-                    error!("Failed to initialize audio: {:?}", e);
-                    cmd.send(EmulatorCommand::SetSpeed(EmulatorSpeed::Video))?;
-                }
-            }
         } else {
-            let mut cb = self.audiosink.as_mut().unwrap().lock();
-            cb.set_receiver(emulator.get_audio());
+            let channel_sink = ChannelAudioSink::new();
+            let receiver = channel_sink.receiver();
+            let mut audio_ready = true;
+
+            if self.audiosink.is_none() {
+                match SDLAudioSink::new(receiver) {
+                    Ok((sink, exch)) => {
+                        self.audiosink = Some(sink);
+                        self.audiosink_exchange = Some(exch);
+                    }
+                    Err(e) => {
+                        error!("Failed to initialize audio: {:?}", e);
+                        cmd.send(EmulatorCommand::SetSpeed(EmulatorSpeed::Video))?;
+                        audio_ready = false;
+                    }
+                }
+            } else {
+                let mut cb = self.audiosink.as_mut().unwrap().lock();
+                cb.set_receiver(receiver);
+            }
+
+            if audio_ready {
+                emulator.set_audio_sink(Box::new(channel_sink));
+            }
         }
 
         if !pause {
@@ -825,32 +836,51 @@ impl EmulatorState {
     }
 
     /// Returns `true` if emulator in fast-forward mode.
+    #[allow(dead_code)]
     pub fn is_fastforward(&self) -> bool {
         let Some(ref status) = self.status else {
             return false;
         };
-        status.speed == EmulatorSpeed::Uncapped
+        matches!(
+            status.speed,
+            EmulatorSpeed::Uncapped | EmulatorSpeed::FastForward(_)
+        )
     }
 
     /// Toggles emulator fast-forward mode.
-    pub fn toggle_fastforward(&self) {
+    /// `limit` optionally caps the speedup: `Some(x)` uses FastForward(x), `None` is uncapped.
+    #[allow(dead_code)]
+    pub fn toggle_fastforward(&self, limit: Option<f64>) {
         let Some(ref status) = self.status else {
             return;
         };
-        let Some(ref sender) = self.cmdsender else {
-            return;
-        };
-        if status.speed == EmulatorSpeed::Uncapped {
-            let newspeed = if self.audiosink.is_some() {
+        if matches!(
+            status.speed,
+            EmulatorSpeed::Uncapped | EmulatorSpeed::FastForward(_)
+        ) {
+            self.set_speed(if self.audiosink.is_some() {
                 EmulatorSpeed::Accurate
             } else {
                 EmulatorSpeed::Video
-            };
-            sender.send(EmulatorCommand::SetSpeed(newspeed)).unwrap();
+            });
         } else {
-            sender
-                .send(EmulatorCommand::SetSpeed(EmulatorSpeed::Uncapped))
-                .unwrap();
+            self.set_speed(if let Some(max_speed) = limit {
+                EmulatorSpeed::FastForward(max_speed)
+            } else {
+                EmulatorSpeed::Uncapped
+            });
+        }
+    }
+
+    /// Returns `true` if audio output is active.
+    pub fn has_audio(&self) -> bool {
+        self.audiosink.is_some()
+    }
+
+    /// Directly sets the emulator speed
+    pub fn set_speed(&self, speed: EmulatorSpeed) {
+        if let Some(ref sender) = self.cmdsender {
+            sender.send(EmulatorCommand::SetSpeed(speed)).unwrap();
         }
     }
 
@@ -1132,6 +1162,31 @@ impl EmulatorState {
 
         sender
             .send(EmulatorCommand::EthernetSetLink(id, link))
+            .unwrap();
+    }
+
+    #[cfg(feature = "ethernet")]
+    pub fn start_ethernet_capture<P: AsRef<std::path::Path>>(&self, scsi_id: usize, filename: P) {
+        let Some(ref sender) = self.cmdsender else {
+            return;
+        };
+
+        sender
+            .send(EmulatorCommand::EthernetStartCapture(
+                scsi_id,
+                filename.as_ref().to_path_buf(),
+            ))
+            .unwrap();
+    }
+
+    #[cfg(feature = "ethernet")]
+    pub fn stop_ethernet_capture(&self, scsi_id: usize) {
+        let Some(ref sender) = self.cmdsender else {
+            return;
+        };
+
+        sender
+            .send(EmulatorCommand::EthernetStopCapture(scsi_id))
             .unwrap();
     }
 

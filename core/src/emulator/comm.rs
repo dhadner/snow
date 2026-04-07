@@ -46,6 +46,10 @@ pub enum EmulatorCommand {
     ScsiAttachEthernet(usize),
     #[cfg(feature = "ethernet")]
     EthernetSetLink(usize, EthernetLinkType),
+    #[cfg(feature = "ethernet")]
+    EthernetStartCapture(usize, PathBuf),
+    #[cfg(feature = "ethernet")]
+    EthernetStopCapture(usize),
     DetachScsiTarget(usize),
     MouseUpdateAbsolute {
         x: u16,
@@ -91,7 +95,7 @@ pub enum EmulatorCommand {
 }
 
 /// Emulator speed tweak
-#[derive(Debug, Copy, Clone, strum::Display, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, strum::Display, PartialEq, Serialize, Deserialize)]
 pub enum EmulatorSpeed {
     /// Actual speed accurate to the real hardware
     Accurate,
@@ -101,6 +105,8 @@ pub enum EmulatorSpeed {
     Uncapped,
     /// Sync to 60 fps video, sound disabled
     Video,
+    /// Fast-forward capped at a maximum speedup multiplier, sound disabled
+    FastForward(f64),
 }
 
 /// Structure with general emulator status
@@ -118,6 +124,15 @@ pub struct EmulatorStatus {
     pub scsi: [Option<ScsiTargetStatus>; 7],
 }
 
+#[cfg(feature = "ethernet")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EthernetCaptureStatus {
+    pub active: bool,
+    pub filename: Option<PathBuf>,
+    pub packet_count: usize,
+    pub error: Option<String>,
+}
+
 #[derive(Debug, Clone)]
 pub struct ScsiTargetStatus {
     pub target_type: ScsiTargetType,
@@ -125,6 +140,8 @@ pub struct ScsiTargetStatus {
     pub capacity: Option<usize>,
     #[cfg(feature = "ethernet")]
     pub link_type: Option<EthernetLinkType>,
+    #[cfg(feature = "ethernet")]
+    pub capture_status: Option<EthernetCaptureStatus>,
 }
 
 #[derive(Debug)]

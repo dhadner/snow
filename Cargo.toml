@@ -29,11 +29,11 @@ semicolon_if_nothing_returned = "deny"
 opt-level = 3
 debug = true
 
+# Patch egui to fix menubar hover behavior.
+# See https://github.com/twvd/snow/pull/251#issuecomment-4103953334
 [patch.crates-io]
-ecolor = { git = "https://github.com/twvd/snow-egui.git", rev = "628a7a4b455f355fafb1d47c9e6870effab96eb5"}
-emath = { git = "https://github.com/twvd/snow-egui.git", rev = "628a7a4b455f355fafb1d47c9e6870effab96eb5"}
-epaint = { git = "https://github.com/twvd/snow-egui.git", rev = "628a7a4b455f355fafb1d47c9e6870effab96eb5"}
-egui = { git = "https://github.com/twvd/snow-egui.git", rev = "628a7a4b455f355fafb1d47c9e6870effab96eb5"}
-egui-winit = { git = "https://github.com/twvd/snow-egui.git", rev = "628a7a4b455f355fafb1d47c9e6870effab96eb5"}
-
-egui-file-dialog = { git = "https://github.com/twvd/snow-egui-file-dialog.git", rev = "7504d855c587129b36092cea818fafd2153a311b" }
+ecolor = { git = "https://github.com/twvd/snow-egui.git", rev = "7e06cfd6261d3e42a15002fe80816fba88557dc1"}
+emath = { git = "https://github.com/twvd/snow-egui.git", rev = "7e06cfd6261d3e42a15002fe80816fba88557dc1"}
+epaint = { git = "https://github.com/twvd/snow-egui.git", rev = "7e06cfd6261d3e42a15002fe80816fba88557dc1"}
+egui = { git = "https://github.com/twvd/snow-egui.git", rev = "7e06cfd6261d3e42a15002fe80816fba88557dc1"}
+egui-winit = { git = "https://github.com/twvd/snow-egui.git", rev = "7e06cfd6261d3e42a15002fe80816fba88557dc1"}

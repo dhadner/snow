@@ -1,10 +1,11 @@
 use std::fs;
 use std::path::PathBuf;
 
+use crate::dialogs::filedialog::SnowFileDialog;
 use crate::emulator::EmulatorInitArgs;
+use crate::settings::AppSettings;
 use anyhow::{anyhow, bail, Result};
 use eframe::egui;
-use egui_file_dialog::FileDialog;
 use sha2::{Digest, Sha256};
 use snow_core::emulator::MouseMode;
 use snow_core::mac::swim::drive::DriveType;
@@ -24,22 +25,22 @@ pub struct ModelSelectionDialog {
     // Main ROM selection
     main_rom_path: String,
     main_rom_valid: bool,
-    main_rom_dialog: FileDialog,
+    main_rom_dialog: SnowFileDialog,
 
     // Display Card ROM (for Mac II only)
     display_rom_path: String,
     display_rom_valid: bool,
-    display_rom_dialog: FileDialog,
+    display_rom_dialog: SnowFileDialog,
     display_rom_required: bool,
 
     // PRAM path
     pram_enabled: bool,
     pram_path: String,
-    pram_dialog: FileDialog,
+    pram_dialog: SnowFileDialog,
 
     // Extension ROM path
     extension_rom_path: String,
-    extension_rom_dialog: FileDialog,
+    extension_rom_dialog: SnowFileDialog,
 
     // Result
     result: Option<ModelSelectionResult>,
@@ -48,7 +49,8 @@ pub struct ModelSelectionDialog {
     disable_rom_validation: bool,
 
     // Error state
-    error_message: String,
+    main_rom_error: String,
+    display_rom_error: String,
 }
 
 fn format_ram(sz: usize) -> String {
@@ -81,43 +83,21 @@ impl Default for ModelSelectionDialog {
 
             main_rom_path: String::new(),
             main_rom_valid: false,
-            main_rom_dialog: FileDialog::new()
-                .add_file_filter(
-                    "ROM files (*.rom, *.bin)",
-                    std::sync::Arc::new(|p| {
-                        if let Some(ext) = p.extension() {
-                            let ext_str = ext.to_string_lossy().to_lowercase();
-                            ext_str == "rom" || ext_str == "bin"
-                        } else {
-                            false
-                        }
-                    }),
-                )
-                .default_file_filter("ROM files (*.rom, *.bin)")
+            main_rom_dialog: SnowFileDialog::new()
+                .add_filter("ROM files", &["rom", "bin"])
                 .show_pinned_folders(false)
                 .opening_mode(egui_file_dialog::OpeningMode::LastVisitedDir),
 
             display_rom_path: String::new(),
             display_rom_valid: false,
-            display_rom_dialog: FileDialog::new()
-                .add_file_filter(
-                    "ROM files (*.rom, *.bin)",
-                    std::sync::Arc::new(|p| {
-                        if let Some(ext) = p.extension() {
-                            let ext_str = ext.to_string_lossy().to_lowercase();
-                            ext_str == "rom" || ext_str == "bin" || ext_str == "uk6"
-                        } else {
-                            false
-                        }
-                    }),
-                )
-                .default_file_filter("ROM files (*.rom, *.bin)")
+            display_rom_dialog: SnowFileDialog::new()
+                .add_filter("ROM files", &["rom", "bin", "uk6"])
                 .show_pinned_folders(false)
                 .opening_mode(egui_file_dialog::OpeningMode::LastVisitedDir),
             display_rom_required: false,
 
             pram_enabled: false,
-            pram_dialog: FileDialog::new()
+            pram_dialog: SnowFileDialog::new()
                 .add_save_extension("PRAM files", "pram")
                 .default_save_extension("PRAM files")
                 .show_pinned_folders(false)
@@ -125,24 +105,14 @@ impl Default for ModelSelectionDialog {
             pram_path: String::new(),
 
             extension_rom_path: String::new(),
-            extension_rom_dialog: FileDialog::new()
-                .add_file_filter(
-                    "ROM files (*.rom, *.bin)",
-                    std::sync::Arc::new(|p| {
-                        if let Some(ext) = p.extension() {
-                            let ext_str = ext.to_string_lossy().to_lowercase();
-                            ext_str == "rom" || ext_str == "bin"
-                        } else {
-                            false
-                        }
-                    }),
-                )
-                .default_file_filter("ROM files (*.rom, *.bin)")
+            extension_rom_dialog: SnowFileDialog::new()
+                .add_filter("ROM files", &["rom", "bin"])
                 .opening_mode(egui_file_dialog::OpeningMode::LastVisitedDir),
 
             result: None,
             disable_rom_validation: false,
-            error_message: String::new(),
+            main_rom_error: String::new(),
+            display_rom_error: String::new(),
         }
     }
 }
@@ -156,7 +126,8 @@ impl ModelSelectionDialog {
         self.open = true;
         self.last_roms = last_roms;
         self.last_display_roms = last_display_roms;
-        self.error_message.clear();
+        self.main_rom_error.clear();
+        self.display_rom_error.clear();
         self.result = None;
 
         self.do_model_changed();
@@ -214,6 +185,14 @@ impl ModelSelectionDialog {
         }
     }
 
+    fn video_rom_description(&self) -> &str {
+        if self.selected_model == MacModel::SE30 {
+            "SE/30 video ROM"
+        } else {
+            "Macintosh Display Card 8-24 ROM (341-0868)"
+        }
+    }
+
     fn validate_main_rom(&mut self) -> Result<()> {
         self.main_rom_valid = false;
         if self.main_rom_path.is_empty() {
@@ -260,7 +239,7 @@ impl ModelSelectionDialog {
         if self.disable_rom_validation {
             // Just check if the file exists and is readable
             let _rom_data = std::fs::read(&self.display_rom_path)
-                .map_err(|e| anyhow!("Cannot read Display Card ROM: {}", e))?;
+                .map_err(|e| anyhow!("Cannot read {}: {}", self.video_rom_description(), e))?;
             self.display_rom_valid = true;
             return Ok(());
         }
@@ -269,7 +248,7 @@ impl ModelSelectionDialog {
         let mut hash = Sha256::new();
         hash.update(
             std::fs::read(&self.display_rom_path)
-                .map_err(|e| anyhow!("Invalid Display Card ROM: {}", e))?,
+                .map_err(|e| anyhow!("Invalid {}: {}", self.video_rom_description(), e))?,
         );
         let digest = hash.finalize();
 
@@ -288,25 +267,25 @@ impl ModelSelectionDialog {
             Ok(())
         } else {
             self.display_rom_valid = false;
-            bail!("Invalid Display Card ROM. Expected Macintosh Display Card 8-24 (341-0868) ROM.")
+            bail!("Invalid {}.", self.video_rom_description())
         }
     }
 
-    pub fn update(&mut self, ctx: &egui::Context) {
+    pub fn update(&mut self, ctx: &egui::Context, frame: &eframe::Frame, settings: &AppSettings) {
         if !self.open {
             return;
         }
 
         // Update file dialogs
-        self.main_rom_dialog.update(ctx);
-        self.display_rom_dialog.update(ctx);
-        self.pram_dialog.update(ctx);
-        self.extension_rom_dialog.update(ctx);
+        self.main_rom_dialog.update(ctx, frame);
+        self.display_rom_dialog.update(ctx, frame);
+        self.pram_dialog.update(ctx, frame);
+        self.extension_rom_dialog.update(ctx, frame);
 
-        if self.main_rom_dialog.state() == egui_file_dialog::DialogState::Open
-            || self.display_rom_dialog.state() == egui_file_dialog::DialogState::Open
-            || self.pram_dialog.state() == egui_file_dialog::DialogState::Open
-            || self.extension_rom_dialog.state() == egui_file_dialog::DialogState::Open
+        if *self.main_rom_dialog.state() == egui_file_dialog::DialogState::Open
+            || *self.display_rom_dialog.state() == egui_file_dialog::DialogState::Open
+            || *self.pram_dialog.state() == egui_file_dialog::DialogState::Open
+            || *self.extension_rom_dialog.state() == egui_file_dialog::DialogState::Open
         {
             return;
         }
@@ -385,7 +364,7 @@ impl ModelSelectionDialog {
                         self.do_validate_main_rom();
                     }
                     if ui.button("Browse...").clicked() {
-                        self.main_rom_dialog.pick_file();
+                        self.main_rom_dialog.pick_file(settings.native_file_dialogs);
                     }
                 });
 
@@ -410,11 +389,7 @@ impl ModelSelectionDialog {
 
                 // Display Card ROM selection (Mac II only)
                 if self.display_rom_required {
-                    if self.selected_model == MacModel::SE30 {
-                        ui.label("SE/30 video ROM");
-                    } else {
-                        ui.label("Macintosh Display Card 8-24 ROM (341-0868)");
-                    }
+                    ui.label(self.video_rom_description());
                     ui.horizontal(|ui| {
                         if ui
                             .text_edit_singleline(&mut self.display_rom_path)
@@ -423,7 +398,8 @@ impl ModelSelectionDialog {
                             self.do_validate_display_rom();
                         }
                         if ui.button("Browse...").clicked() {
-                            self.display_rom_dialog.pick_file();
+                            self.display_rom_dialog
+                                .pick_file(settings.native_file_dialogs);
                         }
                     });
 
@@ -475,7 +451,7 @@ impl ModelSelectionDialog {
                             ui.horizontal(|ui| {
                                 ui.text_edit_singleline(&mut self.pram_path);
                                 if ui.button("Browse...").clicked() {
-                                    self.pram_dialog.save_file();
+                                    self.pram_dialog.save_file(settings.native_file_dialogs);
                                 }
                             });
                         }
@@ -486,7 +462,8 @@ impl ModelSelectionDialog {
                         ui.label("Extension ROM:");
                         ui.text_edit_singleline(&mut self.extension_rom_path);
                         if ui.button("Browse...").clicked() {
-                            self.extension_rom_dialog.pick_file();
+                            self.extension_rom_dialog
+                                .pick_file(settings.native_file_dialogs);
                         }
                     });
                 });
@@ -541,18 +518,30 @@ impl ModelSelectionDialog {
                 });
             });
 
-            // Error message
-            if !self.error_message.is_empty() {
+            // Error messages
+            if !self.main_rom_error.is_empty() || !self.display_rom_error.is_empty() {
                 ui.separator();
                 ui.add_space(10.0);
-                ui.label(
-                    egui::RichText::new(format!(
-                        "    {} {}",
-                        egui_material_icons::icons::ICON_ERROR,
-                        &self.error_message
-                    ))
-                    .color(egui::Color32::RED),
-                );
+                if !self.main_rom_error.is_empty() {
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "    {} {}",
+                            egui_material_icons::icons::ICON_ERROR,
+                            &self.main_rom_error
+                        ))
+                        .color(egui::Color32::RED),
+                    );
+                }
+                if !self.display_rom_error.is_empty() {
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "    {} {}",
+                            egui_material_icons::icons::ICON_ERROR,
+                            &self.display_rom_error
+                        ))
+                        .color(egui::Color32::RED),
+                    );
+                }
                 ui.add_space(10.0);
             }
 
@@ -644,25 +633,17 @@ impl ModelSelectionDialog {
         }
 
         if let Err(e) = self.validate_main_rom() {
-            self.error_message = e.to_string();
+            self.main_rom_error = e.to_string();
         } else {
-            self.error_message.clear();
+            self.main_rom_error.clear();
         }
     }
 
     fn do_validate_display_rom(&mut self) {
-        if (self.display_rom_path.is_empty() || !self.display_rom_required)
-            && self.error_message.starts_with("Invalid Display Card")
-        {
-            self.error_message.clear();
-        }
-
         if let Err(e) = self.validate_display_rom() {
-            self.error_message = e.to_string();
-        } else if !self.main_rom_path.is_empty()
-            && self.error_message.starts_with("Invalid Display Card")
-        {
-            self.error_message.clear();
+            self.display_rom_error = e.to_string();
+        } else {
+            self.display_rom_error.clear();
         }
     }
 }

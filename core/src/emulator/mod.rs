@@ -31,7 +31,7 @@ use crate::mac::serial_bridge::{SccBridge, SerialBridgeStatus};
 use crate::mac::swim::drive::DriveType;
 use crate::mac::{ExtraROMs, MacModel, MacMonitor};
 use crate::renderer::channel::ChannelRenderer;
-use crate::renderer::AudioReceiver;
+use crate::renderer::AudioSink;
 use crate::renderer::{DisplayBuffer, Renderer};
 use crate::tickable::{Tickable, Ticks};
 use crate::types::Byte;
@@ -45,6 +45,7 @@ use crate::cpu_m68k::regs::{Register, RegisterFile};
 use crate::emulator::comm::{EmulatorSpeed, UserMessageType};
 use crate::mac::rtc::Rtc;
 use crate::mac::scsi::controller::ScsiController;
+use crate::mac::scsi::disk_image::DiskImage;
 use crate::mac::swim::Swim;
 use comm::{
     Breakpoint, EmulatorCommand, EmulatorCommandSender, EmulatorEvent, EmulatorEventReceiver,
@@ -189,11 +190,11 @@ dispatch! {
         fn speed(&self) -> EmulatorSpeed { bus.speed }
         fn effective_speed(&self) -> f64 { bus.get_effective_speed() }
         fn debug_properties(&self) -> DebuggableProperties { bus.get_debug_properties() }
-        fn get_audio_channel(&self) -> AudioReceiver { bus.get_audio_channel() }
     }
 
     mutable_calls {
         fn set_speed(&mut self, speed: EmulatorSpeed) -> () { bus.set_speed(speed) }
+        fn set_audio_sink(&mut self, sink: Box<dyn AudioSink>) -> () { bus.set_audio_sink(sink) }
 
         fn cpu_tick(&mut self, ticks: Ticks) -> Result<Ticks> { tick(ticks) }
         fn cpu_set_breakpoint(&mut self, bp: Breakpoint) -> () { set_breakpoint(bp) }
@@ -587,6 +588,10 @@ impl Emulator {
                             link_type: self.config.scsi().targets[i]
                                 .as_ref()
                                 .and_then(|d| d.eth_link()),
+                            #[cfg(feature = "ethernet")]
+                            capture_status: self.config.scsi().targets[i]
+                                .as_ref()
+                                .and_then(|d| d.eth_capture_status()),
                         })
                 }),
                 speed: self.config.speed(),
@@ -672,12 +677,28 @@ impl Emulator {
         Ok(())
     }
 
-    pub fn get_audio(&mut self) -> AudioReceiver {
-        self.config.get_audio_channel()
+    pub fn set_audio_sink(&mut self, sink: Box<dyn AudioSink>) {
+        self.config.set_audio_sink(sink);
     }
 
     pub fn load_hdd_image(&mut self, filename: &Path, scsi_id: usize) -> Result<()> {
         self.config.scsi_mut().attach_hdd_at(filename, scsi_id)
+    }
+
+    pub fn attach_disk_image_at(
+        &mut self,
+        image: Box<dyn DiskImage>,
+        scsi_id: usize,
+    ) -> Result<()> {
+        self.config.scsi_mut().attach_disk_image_at(image, scsi_id)
+    }
+
+    pub fn insert_cdrom_image_at(
+        &mut self,
+        image: Box<dyn DiskImage>,
+        scsi_id: usize,
+    ) -> Result<()> {
+        self.config.scsi_mut().insert_cdrom_image_at(image, scsi_id)
     }
 
     fn user_error(&self, msg: &str) {
@@ -1118,6 +1139,50 @@ impl Tickable for Emulator {
                             .context("Setting link on non-ethernet device")?
                             .eth_set_link(link)?;
                     }
+                    #[cfg(feature = "ethernet")]
+                    EmulatorCommand::EthernetStartCapture(idx, filename) => {
+                        match self.config.scsi_mut().targets[idx]
+                            .as_mut()
+                            .context("No ethernet device attached")?
+                            .eth_start_capture(&filename)
+                        {
+                            Ok(_) => {
+                                self.user_success(&format!(
+                                    "SCSI #{}: Started pcap capture to '{}'",
+                                    idx,
+                                    filename.display()
+                                ));
+                            }
+                            Err(e) => {
+                                self.user_error(&format!(
+                                    "SCSI #{}: Failed to start capture: {}",
+                                    idx, e
+                                ));
+                            }
+                        }
+                        self.status_update()?;
+                    }
+                    #[cfg(feature = "ethernet")]
+                    EmulatorCommand::EthernetStopCapture(idx) => {
+                        match self.config.scsi_mut().targets[idx]
+                            .as_mut()
+                            .context("No ethernet device attached")?
+                            .eth_stop_capture()
+                        {
+                            Some((filename, count)) => {
+                                self.user_success(&format!(
+                                    "SCSI #{}: Stopped capture, wrote {} packets to '{}'",
+                                    idx,
+                                    count,
+                                    filename.display()
+                                ));
+                            }
+                            None => {
+                                self.user_warning(&format!("SCSI #{}: No capture was active", idx));
+                            }
+                        }
+                        self.status_update()?;
+                    }
                 }
             }
         }
@@ -1133,7 +1198,28 @@ impl Tickable for Emulator {
             for ch in crate::mac::scc::SccCh::iter() {
                 let ch_idx = ch as usize;
 
-                // Check for TX data from SCC
+                // Poll bridges for incoming data and status changes
+                if let Some(ref mut bridge) = self.serial_bridges[ch_idx] {
+                    // Propagate SCC state to LocalTalk bridge
+                    if bridge.is_localtalk() {
+                        let sdlc_addr = self.config.scc().sdlc_address(ch);
+                        bridge.set_node_address(sdlc_addr);
+                        bridge
+                            .set_address_search_mode(self.config.scc().is_address_search_mode(ch));
+
+                        // Prefer SDLC frame-boundary path if frames are ready
+                        let frames = self.config.scc_mut().take_tx_frames(ch);
+                        if !frames.is_empty() {
+                            for frame in &frames {
+                                bridge.send_frame(frame);
+                            }
+                            // Drain tx_queue to avoid double-sending via byte-stream
+                            self.config.scc_mut().take_tx(ch);
+                        }
+                    }
+                }
+
+                // Check for TX data from SCC (byte-stream path / fallback)
                 if self.config.scc().has_tx_data(ch) {
                     let tx_data = self.config.scc_mut().take_tx(ch);
 
@@ -1146,7 +1232,6 @@ impl Tickable for Emulator {
                     }
                 }
 
-                // Poll bridges for incoming data and status changes
                 if let Some(ref mut bridge) = self.serial_bridges[ch_idx] {
                     // Check for state changes (e.g., new TCP connection, LocalTalk status)
                     let has_data = bridge.poll();
@@ -1191,9 +1276,30 @@ impl Tickable for Emulator {
                 {
                     if let Some(ref mut bridge) = self.serial_bridges[1] {
                         if bridge.is_localtalk() {
-                            // First, flush any pending TX data to the bridge
-                            // This ensures RTS is processed and CTS is synthesized
-                            // before we poll for responses
+                            // Propagate SCC state to LocalTalk bridge
+                            let sdlc_addr =
+                                self.config.scc().sdlc_address(crate::mac::scc::SccCh::B);
+                            bridge.set_node_address(sdlc_addr);
+                            bridge.set_address_search_mode(
+                                self.config
+                                    .scc()
+                                    .is_address_search_mode(crate::mac::scc::SccCh::B),
+                            );
+
+                            // Prefer SDLC frame-boundary path if frames are ready
+                            let frames = self
+                                .config
+                                .scc_mut()
+                                .take_tx_frames(crate::mac::scc::SccCh::B);
+                            if !frames.is_empty() {
+                                for frame in &frames {
+                                    bridge.send_frame(frame);
+                                }
+                                // Drain tx_queue to avoid double-sending
+                                self.config.scc_mut().take_tx(crate::mac::scc::SccCh::B);
+                            }
+
+                            // Byte-stream TX path (fallback when no frame boundaries detected)
                             if self.config.scc().has_tx_data(crate::mac::scc::SccCh::B) {
                                 let tx_data =
                                     self.config.scc_mut().take_tx(crate::mac::scc::SccCh::B);

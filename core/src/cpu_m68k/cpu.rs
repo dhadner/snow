@@ -248,6 +248,9 @@ pub struct CpuM68k<
     /// Exception occured this step
     pub step_exception: bool,
 
+    /// Trace exception must be inhibited after this instruction
+    step_inhibit_trace: bool,
+
     /// External address/data bus
     pub bus: TBus,
 
@@ -256,6 +259,9 @@ pub struct CpuM68k<
 
     /// Total cycle counter
     pub cycles: Ticks,
+
+    /// Time of last bus sync in cycles
+    pub last_bus_sync: Ticks,
 
     /// Current prefetch queue
     pub prefetch: VecDeque<u16>,
@@ -325,6 +331,9 @@ pub struct CpuM68k<
     /// restarting an instruction that caused a mid-instruction
     /// bus fault.
     pub(in crate::cpu_m68k) restart_regs: Option<RestartRegisterFile>,
+
+    /// NMI edge trigger level
+    in_nmi: bool,
 }
 
 impl<
@@ -347,9 +356,11 @@ where
             bus,
             regs: RegisterFile::new(),
             cycles: 0,
+            last_bus_sync: 0,
             prefetch: VecDeque::with_capacity(3),
             step_ea_addr: None,
             step_exception: false,
+            step_inhibit_trace: false,
             step_ea_load: None,
             decode_cache: empty_decode_cache(),
             trace_mask: false,
@@ -365,6 +376,7 @@ where
             icache_lines: core::array::from_fn(|_| Default::default()),
             icache_tags: [ICACHE_TAG_INVALID; ICACHE_LINES],
             restart_regs: None,
+            in_nmi: false,
         }
     }
 
@@ -378,6 +390,7 @@ where
         self.icache_tags.fill(ICACHE_TAG_INVALID);
 
         self.cycles = 0;
+        self.last_bus_sync = 0;
         let init_ssp = self.read_ticks(VECTOR_SP)?;
         let init_pc = self.read_ticks(VECTOR_RESET)?;
 
@@ -536,12 +549,25 @@ where
         Ok(v)
     }
 
+    pub fn sync_bus(&mut self) -> Result<()> {
+        let cycles_since_last_sync = self.cycles - self.last_bus_sync;
+        if cycles_since_last_sync > 0 {
+            self.last_bus_sync += cycles_since_last_sync;
+            self.bus.tick(cycles_since_last_sync)?;
+        }
+
+        Ok(())
+    }
+
     /// Executes a single CPU step.
     pub fn step(&mut self) -> Result<()> {
         debug_assert_eq!(self.prefetch.len(), 2);
 
+        self.sync_bus()?;
+
         self.step_ea_addr = None;
         self.step_exception = false;
+        self.step_inhibit_trace = false;
         self.step_over_addr = None;
         self.step_ea_load = None;
 
@@ -551,11 +577,7 @@ where
 
         // Flag exceptions before executing the instruction to act on them later
         let trace_exception = self.regs.sr.trace() && !self.trace_mask;
-        let irq_exception = match self.bus.get_irq() {
-            Some(7) => 7,
-            Some(level) if level > self.regs.sr.int_prio_mask() => level,
-            _ => 0,
-        };
+        let irq_exception = self.bus.get_irq();
 
         // Start of instruction execution
         if self.history_enabled {
@@ -655,13 +677,29 @@ where
         self.prefetch_refill()?;
 
         // Check pending trace
-        if trace_exception {
+        if trace_exception && !self.step_inhibit_trace {
             self.raise_exception(ExceptionGroup::Group1, VECTOR_TRACE, None)?;
         }
 
         // Check pending interrupts
-        if irq_exception != 0 {
-            let level = irq_exception;
+        // NMI is edge-triggered
+        if irq_exception != Some(7) {
+            self.in_nmi = false;
+        }
+        let irq_exception_masked = match irq_exception {
+            Some(7) => {
+                if !self.in_nmi {
+                    self.in_nmi = true;
+                    7
+                } else {
+                    0
+                }
+            }
+            Some(level) if level > self.regs.sr.int_prio_mask() => level,
+            _ => 0,
+        };
+        if irq_exception_masked != 0 {
+            let level = irq_exception_masked;
             if self
                 .breakpoints
                 .contains(&Breakpoint::InterruptLevel(level))
@@ -721,10 +759,8 @@ where
 
     /// Advances by the given amount of cycles
     pub(in crate::cpu_m68k) fn advance_cycles(&mut self, ticks: Ticks) -> Result<()> {
-        for _ in 0..ticks {
-            self.cycles += 1;
-            self.bus.tick(1)?;
-        }
+        self.cycles += ticks;
+        self.bus.cpu_tick(ticks)?;
         Ok(())
     }
 
@@ -754,6 +790,10 @@ where
 
     /// Raises an illegal instruction exception
     fn raise_illegal_instruction(&mut self) -> Result<()> {
+        // "If the instruction is not executed because the instruction is illegal or privileged,
+        // the trace exception does not occur."
+        self.step_inhibit_trace = true;
+
         warn!("Illegal instruction at PC ${:08X}", self.regs.pc);
         self.advance_cycles(4)?;
         self.raise_exception(ExceptionGroup::Group1, VECTOR_ILLEGAL, None)?;
@@ -762,6 +802,10 @@ where
 
     /// Raises a privilege violation exception
     fn raise_privilege_violation(&mut self) -> Result<()> {
+        // "If the instruction is not executed because the instruction is illegal or privileged,
+        // the trace exception does not occur."
+        self.step_inhibit_trace = true;
+
         self.advance_cycles(4)?;
         self.raise_exception(ExceptionGroup::Group2, VECTOR_PRIVILEGE_VIOLATION, None)?;
         Ok(())
@@ -1191,7 +1235,7 @@ where
             InstructionMnemonic::RTE => self.op_rte(instr),
             InstructionMnemonic::RTS => self.op_rts(instr),
             InstructionMnemonic::RTR => self.op_rtr(instr),
-            InstructionMnemonic::STOP => bail!("STOP instruction encountered"),
+            InstructionMnemonic::STOP => self.op_stop(instr),
             InstructionMnemonic::TRAPV => self.op_trapv(instr),
             InstructionMnemonic::JSR => self.op_jmp_jsr(instr),
             InstructionMnemonic::JMP => self.op_jmp_jsr(instr),
@@ -1857,12 +1901,13 @@ where
 
         if divisor == 0 {
             // Division by zero
-            self.advance_cycles(4)?;
+            self.advance_cycles(8)?;
             self.regs.sr.set_n(false);
             self.regs.sr.set_c(false);
             self.regs.sr.set_z(false);
             self.regs.sr.set_v(false);
 
+            self.regs.pc = self.regs.pc.wrapping_add(2);
             return self.raise_exception(ExceptionGroup::Group2, VECTOR_DIV_ZERO, None);
         }
 
@@ -1919,12 +1964,13 @@ where
 
         if divisor == 0 {
             // Division by zero
-            self.advance_cycles(4)?;
+            self.advance_cycles(8)?;
             self.regs.sr.set_n(false);
             self.regs.sr.set_c(false);
             self.regs.sr.set_z(false);
             self.regs.sr.set_v(false);
 
+            self.regs.pc = self.regs.pc.wrapping_add(2);
             return self.raise_exception(ExceptionGroup::Group2, VECTOR_DIV_ZERO, None);
         }
 
@@ -2351,6 +2397,18 @@ where
 
     /// TAS
     pub fn op_tas(&mut self, instr: &Instruction) -> Result<()> {
+        // 68k reserved illegal opcodes (invalid modes for TAS)
+        if [
+            AddressingMode::AddressRegister,
+            AddressingMode::Immediate,
+            AddressingMode::PCIndex,
+            AddressingMode::PCDisplacement,
+        ]
+        .contains(&instr.get_addr_mode()?)
+        {
+            return self.raise_illegal_instruction();
+        }
+
         let v = self.read_ea::<Byte>(instr, instr.get_op2())?;
         if instr.get_addr_mode()? != AddressingMode::DataRegister {
             self.advance_cycles(2)?;
@@ -2446,6 +2504,22 @@ where
         }
 
         Ok(())
+    }
+
+    /// STOP - Load immediate data into SR and wait for interrupt
+    fn op_stop(&mut self, _instr: &Instruction) -> Result<()> {
+        let new_sr = self.fetch()?;
+
+        if !self.regs.sr.supervisor() {
+            return self.raise_privilege_violation();
+        }
+
+        // Now load the new SR value
+        self.prefetch_pump()?;
+        self.set_sr(new_sr);
+
+        // TODO STOP loads SR and then enters a stopped state waiting for an interrupt.
+        bail!("STOP #${:04X} instruction encountered", new_sr);
     }
 
     /// RTE
@@ -2908,7 +2982,7 @@ where
         self.regs.write_d(instr.get_op2(), result);
         self.regs.sr.set_ccr(ccr);
 
-        self.advance_cycles(2 * count)?;
+        self.advance_cycles(2 * count as Ticks)?;
 
         match std::mem::size_of::<T>() {
             4 => self.advance_cycles(4)?,
@@ -3853,7 +3927,7 @@ where
 
         if divisor == 0 {
             // Division by zero
-            self.advance_cycles(4)?;
+            self.advance_cycles(8)?;
             self.regs.sr.set_n(false);
             self.regs.sr.set_c(false);
             self.regs.sr.set_z(false);

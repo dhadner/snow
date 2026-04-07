@@ -10,6 +10,8 @@ use crate::widgets::framebuffer::ScalingAlgorithm;
 use anyhow::{Context, Result};
 use eframe::egui;
 use serde::{Deserialize, Deserializer, Serialize};
+#[cfg(feature = "ethernet")]
+use snow_core::mac::scsi::ethernet::EthernetLinkType;
 use snow_core::mac::scsi::target::ScsiTargetType;
 use snow_core::mac::MacModel;
 
@@ -111,6 +113,87 @@ impl Into<ScsiTarget> for WorkspaceScsiTarget {
     }
 }
 
+/// Workspace variant of link mode for ethernet device
+#[allow(clippy::upper_case_acronyms)]
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+pub enum WorkspaceEthernetLinkType {
+    /// Userland NAT
+    #[cfg(feature = "ethernet_nat")]
+    NAT,
+    /// Userland NAT with HTTPS stripping
+    #[cfg(feature = "ethernet_nat_https_stripping")]
+    NATHttpsStripping,
+    /// Raw sockets based bridge
+    #[cfg(feature = "ethernet_raw")]
+    Bridge(u32),
+    /// Tap interface based bridge
+    #[cfg(all(feature = "ethernet_tap", target_os = "linux"))]
+    TapBridge(String),
+    /// No link
+    #[serde(other)]
+    Down,
+}
+
+#[allow(clippy::derivable_impls)]
+impl Default for WorkspaceEthernetLinkType {
+    fn default() -> Self {
+        #[cfg(feature = "ethernet_nat")]
+        {
+            Self::NAT
+        }
+        #[cfg(not(feature = "ethernet_nat"))]
+        {
+            Self::Down
+        }
+    }
+}
+
+#[cfg(feature = "ethernet")]
+impl From<EthernetLinkType> for WorkspaceEthernetLinkType {
+    fn from(ty: EthernetLinkType) -> Self {
+        match ty {
+            EthernetLinkType::Down => Self::Down,
+            #[cfg(feature = "ethernet_nat")]
+            EthernetLinkType::NAT => Self::NAT,
+            #[cfg(feature = "ethernet_nat_https_stripping")]
+            EthernetLinkType::NATHttpsStripping => Self::NATHttpsStripping,
+            #[cfg(feature = "ethernet_raw")]
+            EthernetLinkType::Bridge(i) => Self::Bridge(i),
+            #[cfg(all(feature = "ethernet_tap", target_os = "linux"))]
+            EthernetLinkType::TapBridge(s) => Self::TapBridge(s),
+        }
+    }
+}
+
+#[cfg(feature = "ethernet")]
+impl From<WorkspaceEthernetLinkType> for EthernetLinkType {
+    fn from(ty: WorkspaceEthernetLinkType) -> Self {
+        match ty {
+            WorkspaceEthernetLinkType::Down => Self::Down,
+            #[cfg(feature = "ethernet_nat")]
+            WorkspaceEthernetLinkType::NAT => Self::NAT,
+            #[cfg(feature = "ethernet_nat_https_stripping")]
+            WorkspaceEthernetLinkType::NATHttpsStripping => Self::NATHttpsStripping,
+            #[cfg(feature = "ethernet_raw")]
+            WorkspaceEthernetLinkType::Bridge(i) => Self::Bridge(i),
+            #[cfg(all(feature = "ethernet_tap", target_os = "linux"))]
+            WorkspaceEthernetLinkType::TapBridge(s) => Self::TapBridge(s),
+        }
+    }
+}
+
+/// Mapping of a right modifier key to the Mac's Cmd key
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CmdKeyMapping {
+    /// No remapping; right Alt = Option, right Ctrl = Control
+    Disabled,
+    /// Right Alt maps to Cmd
+    #[default]
+    RightAlt,
+    /// Right Ctrl maps to Cmd
+    RightCtrl,
+}
+
 /// A workspace representation which contains:
 /// * (Paths to) loaded assets
 /// * View configuration of the egui frontend
@@ -168,8 +251,13 @@ pub struct Workspace {
     /// Emulated model (None for autodetect)
     pub model: Option<MacModel>,
 
-    /// Map Right ALT to Cmd
-    pub map_cmd_ralt: bool,
+    /// How the right modifier key maps to Cmd
+    #[serde(default)]
+    pub cmd_key_mapping: CmdKeyMapping,
+
+    /// Deprecated: use cmd_key_mapping
+    #[serde(skip_serializing, default)]
+    map_cmd_ralt: Option<bool>,
 
     /// Scaling algorithm in use
     pub scaling_algorithm: ScalingAlgorithm,
@@ -200,6 +288,9 @@ pub struct Workspace {
     /// Shader pipeline configuration
     #[serde(deserialize_with = "deserialize_shader_configs_lenient")]
     pub shader_configs: Vec<ShaderConfig>,
+
+    /// Ethernet link type
+    pub ethernet_link_type: WorkspaceEthernetLinkType,
 }
 
 impl Default for Workspace {
@@ -226,7 +317,8 @@ impl Default for Workspace {
             windows: HashMap::new(),
             init_args: EmulatorInitArgs::default(),
             model: None,
-            map_cmd_ralt: true,
+            cmd_key_mapping: CmdKeyMapping::default(),
+            map_cmd_ralt: None,
             scaling_algorithm: ScalingAlgorithm::Linear,
             pause_on_state_load: false,
             shared_dir: None,
@@ -236,6 +328,7 @@ impl Default for Workspace {
             framebuffer_mode: FramebufferMode::default(),
             shader_enabled: false,
             shader_configs: Vec::new(),
+            ethernet_link_type: WorkspaceEthernetLinkType::default(),
         }
     }
 }
@@ -296,6 +389,15 @@ impl Workspace {
 
         for p in &mut result.floppy_images {
             p.after_deserialize(parent)?;
+        }
+
+        // Migrate old map_cmd_ralt bool to cmd_key_mapping enum
+        if let Some(v) = result.map_cmd_ralt {
+            result.cmd_key_mapping = if v {
+                CmdKeyMapping::RightAlt
+            } else {
+                CmdKeyMapping::Disabled
+            };
         }
 
         // Migrate old framebuffer positioning fields to new enum
@@ -398,6 +500,16 @@ impl Workspace {
             .iter()
             .map(|p| p.get_absolute())
             .collect()
+    }
+
+    #[cfg(feature = "ethernet")]
+    pub fn get_ethernet_link_type(&self) -> EthernetLinkType {
+        self.ethernet_link_type.clone().into()
+    }
+
+    #[cfg(feature = "ethernet")]
+    pub fn set_ethernet_link_type(&mut self, ethernet_link_type: EthernetLinkType) {
+        self.ethernet_link_type = ethernet_link_type.into();
     }
 
     /// Persists a window location

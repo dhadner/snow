@@ -17,7 +17,7 @@ use crate::mac::swim::drive::DriveType;
 use crate::mac::swim::Swim;
 use crate::mac::via::Via;
 use crate::mac::MacModel;
-use crate::renderer::{AudioReceiver, Renderer};
+use crate::renderer::{AudioSink, Renderer};
 use crate::tickable::{Tickable, Ticks};
 use crate::types::{Byte, LatchingEvent, MouseEvent};
 use crate::util::take_from_accumulator;
@@ -232,8 +232,8 @@ where
         self.via.rtc.effective_speed()
     }
 
-    pub(crate) fn get_audio_channel(&self) -> AudioReceiver {
-        self.audio.receiver.as_ref().unwrap().clone()
+    pub(crate) fn set_audio_sink(&mut self, sink: Box<dyn AudioSink>) {
+        self.audio.set_sink(sink);
     }
 
     fn soundbuf(&mut self) -> &mut [u8] {
@@ -676,88 +676,103 @@ where
     TRenderer: Renderer,
 {
     fn tick(&mut self, ticks: Ticks) -> Result<Ticks> {
-        // This is called from the CPU, at the CPU clock speed
-        assert_eq!(ticks, 1);
-        self.cycles += ticks;
+        // XXX: run one tick at a time to avoid missing hblanks and vblanks
+        for _ in 0..ticks {
+            let ticks = 1;
 
-        self.eclock += ticks;
-        while self.eclock >= 10 {
-            // The E Clock is roughly 1/10th of the CPU clock
-            // TODO ticks when VPA is asserted
-            self.eclock -= 10;
+            self.cycles += ticks;
 
-            self.via.tick(1)?;
-        }
+            self.eclock += ticks;
+            while self.eclock >= 10 {
+                // The E Clock is roughly 1/10th of the CPU clock
+                // TODO ticks when VPA is asserted
+                self.eclock -= 10;
 
-        // Pixel clock (15.6672 MHz) is roughly 2x CPU speed
-        self.video.tick(2)?;
-
-        // Sync VIA registers
-        if self.model <= MacModel::Plus {
-            self.via.b_in.set_h4(self.video.in_hblank());
-        } else {
-            self.swim.intdrive = self.via.a_out.drivesel();
-        }
-
-        // VBlank interrupt
-        if self.video.get_clr_vblank() {
-            self.via.ifr.set_vblank(true);
-
-            if self.speed == EmulatorSpeed::Video {
-                // Sync to 60 fps video
-                let frametime = self.vblank_time.elapsed().as_micros() as u64;
-                const DESIRED_FRAMETIME: u64 = 1_000_000 / 60;
-
-                self.vblank_time = Instant::now();
-
-                if frametime < DESIRED_FRAMETIME {
-                    thread::sleep(Duration::from_micros(DESIRED_FRAMETIME - frametime));
-                }
-            }
-        }
-
-        // HBlank
-        if self.video.get_clr_hblank() {
-            // Update floppy drive PWM and send next audio sample
-            let scanline = self.video.get_scanline();
-            let soundon =
-                self.via.a_out.sound() > 0 && self.via.ddrb.sndenb() && !self.via.b_out.sndenb();
-            let soundbuf = self.soundbuf();
-            let pwm = soundbuf[scanline * 2 + 1];
-            let audiosample = if soundon { soundbuf[scanline * 2] } else { 0 };
-
-            self.swim.push_pwm(pwm)?;
-
-            // Sample the mouse here for Early/Plus
-            //
-            // Oscilloscope traces of the SCC show a mouse interrupt can be triggered
-            // at a smallest interval of 284us with vigorous mousing going on.
-            // This translates into ~6.3 scanlines. To be on the safe side, round up to
-            // 8. If the interval is too short, the ROM will not keep up and will
-            // not be able to service Y axis movements anymore.
-            //
-            // From a DCD edge to asserting the interrupt line takes the SCC ~1.5us.
-            if scanline.is_multiple_of(8) {
-                self.plusmouse_tick();
+                self.via.tick(1)?;
             }
 
-            // Emulator will block here to sync to audio frequency
-            match self.speed {
-                EmulatorSpeed::Accurate => self.audio.push(audiosample)?,
-                EmulatorSpeed::Dynamic => {
-                    if !self.audio.is_silent() || audiosample != self.last_audiosample {
-                        self.audio.push(audiosample)?;
+            // Pixel clock (15.6672 MHz) is roughly 2x CPU speed
+            self.video.tick(2 * ticks)?;
+
+            // Sync VIA registers
+            if self.model <= MacModel::Plus {
+                self.via.b_in.set_h4(self.video.in_hblank());
+            } else {
+                self.swim.intdrive = self.via.a_out.drivesel();
+            }
+
+            // VBlank interrupt
+            if self.video.get_clr_vblank() {
+                self.via.ifr.set_vblank(true);
+
+                match self.speed {
+                    EmulatorSpeed::Video => {
+                        // Sync to 60 fps video
+                        let frametime = self.vblank_time.elapsed().as_micros() as u64;
+                        const DESIRED_FRAMETIME: u64 = 1_000_000 / 60;
+                        self.vblank_time = Instant::now();
+                        if frametime < DESIRED_FRAMETIME {
+                            thread::sleep(Duration::from_micros(DESIRED_FRAMETIME - frametime));
+                        }
                     }
+                    EmulatorSpeed::FastForward(max_speed) => {
+                        // Cap to the requested speedup multiplier
+                        let frametime = self.vblank_time.elapsed().as_micros() as u64;
+                        let desired_frametime = (1_000_000.0 / (60.0 * max_speed)) as u64;
+                        self.vblank_time = Instant::now();
+                        if frametime < desired_frametime {
+                            thread::sleep(Duration::from_micros(desired_frametime - frametime));
+                        }
+                    }
+                    _ => {}
                 }
-                EmulatorSpeed::Uncapped => (),
-                EmulatorSpeed::Video => (),
             }
-            self.last_audiosample = audiosample;
+
+            // HBlank
+            if self.video.get_clr_hblank() {
+                // Update floppy drive PWM and send next audio sample
+                let scanline = self.video.get_scanline();
+                let soundon = self.via.a_out.sound() > 0
+                    && self.via.ddrb.sndenb()
+                    && !self.via.b_out.sndenb();
+                let soundbuf = self.soundbuf();
+                let pwm = soundbuf[scanline * 2 + 1];
+                let audiosample = if soundon { soundbuf[scanline * 2] } else { 0 };
+
+                self.swim.push_pwm(pwm)?;
+
+                // Sample the mouse here for Early/Plus
+                //
+                // Oscilloscope traces of the SCC show a mouse interrupt can be triggered
+                // at a smallest interval of 284us with vigorous mousing going on.
+                // This translates into ~6.3 scanlines. To be on the safe side, round up to
+                // 8. If the interval is too short, the ROM will not keep up and will
+                // not be able to service Y axis movements anymore.
+                //
+                // From a DCD edge to asserting the interrupt line takes the SCC ~1.5us.
+                if scanline.is_multiple_of(8) {
+                    self.plusmouse_tick();
+                }
+
+                // Emulator will block here to sync to audio frequency
+                match self.speed {
+                    EmulatorSpeed::Accurate => self.audio.push(audiosample)?,
+                    EmulatorSpeed::Dynamic => {
+                        if !self.audio.is_silent() || audiosample != self.last_audiosample {
+                            self.audio.push(audiosample)?;
+                        }
+                    }
+                    EmulatorSpeed::Uncapped => (),
+                    EmulatorSpeed::Video => (),
+                    EmulatorSpeed::FastForward(_) => (),
+                }
+                self.last_audiosample = audiosample;
+            }
+
+            self.swim.tick(ticks)?;
         }
 
-        self.swim.tick(1)?;
-
-        Ok(1)
+        Ok(ticks)
     }
 }
 

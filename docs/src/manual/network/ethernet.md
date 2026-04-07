@@ -43,6 +43,11 @@ afterwards.
 Snow currently supports a NAT-based ethernet link that runs in userland on the host system. This link only supports
 TCP and UDP connections.
 
+<div class="warning">
+The NAT engine does not translate ICMP, which means you cannot ping through the NAT engine, even though TCP or UDP
+connections to the same remote host may work.
+</div>
+
 You can select the Ethernet link type through the Drives menu: 'Drives' -> 'SCSI ID #_n_'.
 
 ![Ethernet link menu](../../images/ethernet_link.png)
@@ -67,6 +72,31 @@ information to use the DNS server of your choice. Then click 'OK'.
 In this screen, enter the IP-address for the emulated system, which needs to be in the 10.0.0.0/8 network (for example:
 10.0.0.2). Close the MacTCP control panel and reboot the emulated system. You should now be able to go online within
 the emulated system.
+
+### Stripping HTTPS connections
+
+Snow can strip HTTPS and expose HTTPS-only sites to the emulated system in a transparent
+fashion. To use this, select the 'NAT (HTTPS stripping)' link mode. Snow supports TLS 1.2 and higher.
+
+This works transparently in the same way as the normal NAT mode. To visit a website, just
+visit an http link (e.g. `http://www.spacejam.com/1996/`) for the https site you want to
+visit.
+
+When this mode is enabled, Snow will listen for connections the emulated system
+establishes to TCP port 80 (http) and instead set up a TLS connection to that host on
+port 443 and send the plaintext back and forth, basically doing TLS offloading in
+a transparent fashion.
+
+Snow waits for the first HTTP request to arrive before setting up
+the TLS connection to retrieve the `Host:` header from the request to use in TLS Server
+Name Indication (SNI). In the following plaintext stream, Snow will scan for `https://`
+and rewrite that to ` http://` so hyperlinks follow the correct protocol from the
+emulated system side.
+
+<div class="warning">
+By using this mode, you lose encryption for part of the network route. Be aware of the risks before you
+submit any sensitive information over the internet from within the emulated system.
+</div>
 
 ### Using tap interfaces (Linux only)
 

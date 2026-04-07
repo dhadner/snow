@@ -18,7 +18,7 @@ use crate::mac::scsi::controller::ScsiController;
 use crate::mac::swim::Swim;
 use crate::mac::via::Via;
 use crate::mac::{MacModel, MacMonitor};
-use crate::renderer::{AudioReceiver, Renderer};
+use crate::renderer::{AudioSink, Renderer};
 use crate::tickable::{Tickable, Ticks};
 use crate::types::{Byte, LatchingEvent, MouseEvent};
 
@@ -65,6 +65,7 @@ pub struct MacIIBus<TRenderer: Renderer, const AMU: bool> {
     pub(crate) scc: Scc,
     pub(crate) asc: Asc,
     via_clock: Ticks,
+    asc_clock: Ticks,
     mouse_ready: bool,
     pub(crate) swim: Swim,
     pub(crate) scsi: ScsiController,
@@ -85,6 +86,7 @@ pub struct MacIIBus<TRenderer: Renderer, const AMU: bool> {
     /// sleep for in Video speed mode.
     #[serde(skip, default = "Instant::now")]
     vblank_time: Instant,
+    vblank_clock: Ticks,
 
     /// Programmer's key pressed
     progkey_pressed: LatchingEvent,
@@ -197,6 +199,7 @@ where
             swim: Swim::new(model.fdd_drives(), model.fdd_hd(), 16_000_000),
             scsi: ScsiController::new(),
             asc: Asc::default(),
+            asc_clock: 0,
             mouse_ready: false,
 
             ram_mask: usize::MAX,
@@ -209,6 +212,7 @@ where
             speed: EmulatorSpeed::Accurate,
             //last_audiosample: 0,
             vblank_time: Instant::now(),
+            vblank_clock: 0,
             //vpa_sync: false,
             progkey_pressed: LatchingEvent::default(),
 
@@ -274,8 +278,8 @@ where
         self.via1.rtc.effective_speed()
     }
 
-    pub(crate) fn get_audio_channel(&self) -> AudioReceiver {
-        self.asc.receiver.as_ref().unwrap().clone()
+    pub(crate) fn set_audio_sink(&mut self, sink: Box<dyn AudioSink>) {
+        self.asc.set_sink(sink);
     }
 
     #[allow(clippy::needless_pass_by_value)]
@@ -723,8 +727,6 @@ where
     TRenderer: Renderer,
 {
     fn tick(&mut self, ticks: Ticks) -> Result<Ticks> {
-        // This is called from the CPU, at the CPU clock speed
-        assert_eq!(ticks, 1);
         self.cycles += ticks;
 
         if AMU {
@@ -743,19 +745,32 @@ where
         }
 
         // Legacy VBlank interrupt
-        if self.cycles.is_multiple_of(CLOCK_SPEED / 60) {
+        self.vblank_clock += ticks;
+        while self.vblank_clock >= CLOCK_SPEED / 60 {
+            self.vblank_clock -= CLOCK_SPEED / 60;
+
             self.via1.ifr.set_vblank(true);
 
-            if self.speed == EmulatorSpeed::Video {
-                // Sync to 60 fps video
-                let frametime = self.vblank_time.elapsed().as_micros() as u64;
-                const DESIRED_FRAMETIME: u64 = 1_000_000 / 60;
-
-                self.vblank_time = Instant::now();
-
-                if frametime < DESIRED_FRAMETIME {
-                    thread::sleep(Duration::from_micros(DESIRED_FRAMETIME - frametime));
+            match self.speed {
+                EmulatorSpeed::Video => {
+                    // Sync to 60 fps video
+                    let frametime = self.vblank_time.elapsed().as_micros() as u64;
+                    const DESIRED_FRAMETIME: u64 = 1_000_000 / 60;
+                    self.vblank_time = Instant::now();
+                    if frametime < DESIRED_FRAMETIME {
+                        thread::sleep(Duration::from_micros(DESIRED_FRAMETIME - frametime));
+                    }
                 }
+                EmulatorSpeed::FastForward(max_speed) => {
+                    // Cap to the requested speedup multiplier
+                    let frametime = self.vblank_time.elapsed().as_micros() as u64;
+                    let desired_frametime = (1_000_000.0 / (60.0 * max_speed)) as u64;
+                    self.vblank_time = Instant::now();
+                    if frametime < desired_frametime {
+                        thread::sleep(Duration::from_micros(desired_frametime - frametime));
+                    }
+                }
+                _ => {}
             }
         }
 
@@ -763,10 +778,11 @@ where
         if self.asc.get_irq() {
             self.via2.ifr.set_asc(true);
         }
-        if self
-            .cycles
-            .is_multiple_of(CLOCK_SPEED / self.asc.sample_rate())
-        {
+
+        self.asc_clock += ticks;
+        while self.asc_clock >= CLOCK_SPEED / self.asc.sample_rate() {
+            self.asc_clock -= CLOCK_SPEED / self.asc.sample_rate();
+
             self.asc.tick(self.speed == EmulatorSpeed::Accurate)?;
         }
 
@@ -789,7 +805,7 @@ where
         self.via2.ifr.set_scsi_drq(self.scsi.get_drq());
 
         self.swim.intdrive = self.via1.a_out.drivesel();
-        self.swim.tick(1)?;
+        self.swim.tick(ticks)?;
 
         Ok(1)
     }

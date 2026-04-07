@@ -14,6 +14,9 @@
 //! 'neighbor discovery pending' state. To avoid this, we send unsolicited ARP
 //! replies to smoltcp regularly to keep the neighbor cache entry from being evicted.
 
+#[cfg(feature = "https_stripping")]
+mod https_stripping;
+
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream, UdpSocket};
@@ -310,35 +313,60 @@ impl TxToken for VirtualTxToken {
     }
 }
 
+/// UDP NAT entry
+struct UdpEntry {
+    /// Userland UDP socket for external communication
+    os_socket: UdpSocket,
+    /// Remote (internet) endpoint
+    remote_endpoint: IpEndpoint,
+    /// Emulator's source endpoint
+    local_endpoint: IpEndpoint,
+    /// Time at which this entry expires
+    expires_at: Instant,
+}
+
+/// TCP NAT entry
+struct TcpEntry {
+    /// Userland TCP socket for external communication
+    os_socket: TcpStream,
+    /// Remote (internet) endpoint
+    remote_endpoint: IpEndpoint,
+    /// Emulator's source endpoint
+    local_endpoint: IpEndpoint,
+    /// Time at which this entry expires
+    expires_at: Instant,
+}
+
+/// HTTPS stripping NAT entry
+#[cfg(feature = "https_stripping")]
+struct TcpHttpsStrippingEntry {
+    /// HTTPS stripping wrapper around TLS connection (None until Host header is parsed)
+    os_socket: Box<Option<https_stripping::HttpsStrippingStream>>,
+    /// Remote (internet) endpoint (IP address and port 80, not 443)
+    remote_endpoint: IpEndpoint,
+    /// Emulator's source endpoint
+    local_endpoint: IpEndpoint,
+    /// Time at which this entry expires
+    expires_at: Instant,
+    /// Buffer for collecting initial HTTP request to extract Host header
+    initial_buffer: Vec<u8>,
+}
+
 /// NAT connection tracking entry
 enum NatEntry {
-    Udp {
-        /// Userland UDP socket for external communication
-        os_socket: UdpSocket,
-        /// Remote (internet) endpoint
-        remote_endpoint: IpEndpoint,
-        /// Emulator's source endpoint
-        local_endpoint: IpEndpoint,
-        /// Time at which this entry expires
-        expires_at: Instant,
-    },
-    Tcp {
-        /// Userland TCP socket for external communication
-        os_socket: TcpStream,
-        /// Remote (internet) endpoint
-        remote_endpoint: IpEndpoint,
-        /// Emulator's source endpoint
-        local_endpoint: IpEndpoint,
-        /// Time at which this entry expires
-        expires_at: Instant,
-    },
+    Udp(UdpEntry),
+    Tcp(TcpEntry),
+    #[cfg(feature = "https_stripping")]
+    TcpHttpsStripping(TcpHttpsStrippingEntry),
 }
 
 impl NatEntry {
     pub fn expires_at(&self) -> Instant {
         match self {
-            Self::Udp { expires_at, .. } => *expires_at,
-            Self::Tcp { expires_at, .. } => *expires_at,
+            Self::Udp(entry) => entry.expires_at,
+            Self::Tcp(entry) => entry.expires_at,
+            #[cfg(feature = "https_stripping")]
+            Self::TcpHttpsStripping(entry) => entry.expires_at,
         }
     }
 
@@ -393,6 +421,10 @@ pub struct NatEngine {
 
     /// Statistics
     stats: Arc<NatEngineStats>,
+
+    /// Whether to enable HTTPS stripping
+    #[cfg(feature = "https_stripping")]
+    https_stripping: bool,
 }
 
 impl NatEngine {
@@ -403,12 +435,14 @@ impl NatEngine {
     /// * `gateway_mac` - MAC address of the NAT gateway
     /// * `gateway_ip` - IP address of the NAT gateway
     /// * `gateway_subnet` - NAT gateway subnet mask (CIDR)
+    /// * `https_stripping` - Whether to enable HTTPS stripping
     pub fn new(
         tx: Sender<Packet>,
         rx: Receiver<Packet>,
         gateway_mac: [u8; 6],
         gateway_ip: [u8; 4],
         gateway_subnet: u8,
+        #[cfg(feature = "https_stripping")] https_stripping: bool,
     ) -> Self {
         let stats = Arc::new(NatEngineStats::default());
         let gateway_mac_addr = EthernetAddress(gateway_mac);
@@ -452,6 +486,8 @@ impl NatEngine {
             nat_table: HashMap::new(),
             recv_buffer: vec![0u8; SMOLTCP_BUFFER_SIZE],
             stats,
+            #[cfg(feature = "https_stripping")]
+            https_stripping,
         }
     }
 
@@ -480,6 +516,11 @@ impl NatEngine {
         self.forward_udp_os_to_smoltcp()?;
         self.forward_tcp_smoltcp_to_os()?;
         self.forward_tcp_os_to_smoltcp()?;
+        #[cfg(feature = "https_stripping")]
+        {
+            self.forward_tls_to_smoltcp()?;
+            self.forward_smoltcp_to_tls()?;
+        }
 
         // Clean up expired NAT entries
         self.cleanup_expired_entries()?;
@@ -488,14 +529,25 @@ impl NatEngine {
         self.stats.nat_active_tcp.store(
             self.nat_table
                 .iter()
-                .filter(|(_, e)| matches!(e, NatEntry::Tcp { .. }))
+                .filter(|(_, e)| {
+                    matches!(e, NatEntry::Tcp(_)) || {
+                        #[cfg(feature = "https_stripping")]
+                        {
+                            matches!(e, NatEntry::TcpHttpsStripping(_))
+                        }
+                        #[cfg(not(feature = "https_stripping"))]
+                        {
+                            false
+                        }
+                    }
+                })
                 .count(),
             Ordering::Relaxed,
         );
         self.stats.nat_active_udp.store(
             self.nat_table
                 .iter()
-                .filter(|(_, e)| matches!(e, NatEntry::Udp { .. }))
+                .filter(|(_, e)| matches!(e, NatEntry::Udp(_)))
                 .count(),
             Ordering::Relaxed,
         );
@@ -580,20 +632,16 @@ impl NatEngine {
 
         // Check if we already have a NAT entry for this flow
         let existing_entry = self.nat_table.iter().find(|(_, entry)| {
-            if let NatEntry::Udp {
-                local_endpoint,
-                remote_endpoint,
-                ..
-            } = entry
-            {
-                let mac_match = if let IpAddress::Ipv4(mac_ipv4) = local_endpoint.addr {
-                    mac_ipv4 == src_ip && local_endpoint.port == src_port
+            if let NatEntry::Udp(entry) = entry {
+                let mac_match = if let IpAddress::Ipv4(mac_ipv4) = entry.local_endpoint.addr {
+                    mac_ipv4 == src_ip && entry.local_endpoint.port == src_port
                 } else {
                     false
                 };
 
-                let remote_match = if let IpAddress::Ipv4(remote_ipv4) = remote_endpoint.addr {
-                    remote_ipv4 == dst_ip && remote_endpoint.port == dst_port
+                let remote_match = if let IpAddress::Ipv4(remote_ipv4) = entry.remote_endpoint.addr
+                {
+                    remote_ipv4 == dst_ip && entry.remote_endpoint.port == dst_port
                 } else {
                     false
                 };
@@ -607,14 +655,9 @@ impl NatEngine {
         if let Some((handle, _entry)) = existing_entry {
             // Existing entry - forward to OS socket directly
             let handle = *handle;
-            if let Some(NatEntry::Udp {
-                os_socket,
-                expires_at,
-                ..
-            }) = self.nat_table.get_mut(&handle)
-            {
-                *expires_at = Instant::now() + NAT_TIMEOUT_UDP;
-                os_socket.send(payload)?;
+            if let Some(NatEntry::Udp(entry)) = self.nat_table.get_mut(&handle) {
+                entry.expires_at = Instant::now() + NAT_TIMEOUT_UDP;
+                entry.os_socket.send(payload)?;
             }
         } else {
             // Create new NAT entry
@@ -656,12 +699,12 @@ impl NatEngine {
             );
 
             // Store NAT entry
-            let entry = NatEntry::Udp {
+            let entry = NatEntry::Udp(UdpEntry {
                 os_socket,
                 remote_endpoint: IpEndpoint::new(IpAddress::Ipv4(dst_ip), dst_port),
                 local_endpoint: IpEndpoint::new(IpAddress::Ipv4(src_ip), src_port),
                 expires_at: Instant::now() + NAT_TIMEOUT_UDP,
-            };
+            });
 
             self.nat_table.insert(handle, entry);
             self.stats.nat_total_udp.fetch_add(1, Ordering::Relaxed);
@@ -697,24 +740,35 @@ impl NatEngine {
 
         // Check if we already have an entry for this flow
         let existing = self.nat_table.iter().find(|(_, entry)| {
-            if let NatEntry::Tcp {
-                local_endpoint,
-                remote_endpoint,
-                ..
-            } = entry
-            {
-                if let (IpAddress::Ipv4(mac_ip), IpAddress::Ipv4(remote_ip)) =
-                    (local_endpoint.addr, remote_endpoint.addr)
-                {
-                    mac_ip == src_ip
-                        && local_endpoint.port == src_port
-                        && remote_ip == dst_ip
-                        && remote_endpoint.port == dst_port
-                } else {
-                    false
+            match entry {
+                NatEntry::Tcp(entry) => {
+                    if let (IpAddress::Ipv4(mac_ip), IpAddress::Ipv4(remote_ip)) =
+                        (entry.local_endpoint.addr, entry.remote_endpoint.addr)
+                    {
+                        mac_ip == src_ip
+                            && entry.local_endpoint.port == src_port
+                            && remote_ip == dst_ip
+                            && entry.remote_endpoint.port == dst_port
+                    } else {
+                        false
+                    }
                 }
-            } else {
-                false
+                #[cfg(feature = "https_stripping")]
+                NatEntry::TcpHttpsStripping(entry) => {
+                    // For HTTPS stripping, we check against the original port 80 connection
+                    // Note: remote_endpoint stores port 80 (original), not 443
+                    if let (IpAddress::Ipv4(mac_ip), IpAddress::Ipv4(remote_ip)) =
+                        (entry.local_endpoint.addr, entry.remote_endpoint.addr)
+                    {
+                        mac_ip == src_ip
+                            && entry.local_endpoint.port == src_port
+                            && remote_ip == dst_ip
+                            && entry.remote_endpoint.port == dst_port
+                    } else {
+                        false
+                    }
+                }
+                _ => false,
             }
         });
 
@@ -723,49 +777,96 @@ impl NatEngine {
             return Ok(());
         }
 
-        // Connect to the destination via OS TCP socket
-        let remote_addr = SocketAddr::new(
-            std::net::IpAddr::V4(std::net::Ipv4Addr::from(dst_ip.0)),
-            dst_port,
-        );
+        // Check if this is a port 80 connection and HTTPS stripping is enabled
+        #[cfg(feature = "https_stripping")]
+        let use_https_stripping = self.https_stripping && dst_port == 80;
+        #[cfg(not(feature = "https_stripping"))]
+        let use_https_stripping = false;
 
-        let os_socket = TcpStream::connect_timeout(&remote_addr, Duration::from_secs(5))?;
-        os_socket.set_nonblocking(true)?;
+        if use_https_stripping {
+            #[cfg(feature = "https_stripping")]
+            {
+                log::debug!(
+                    "NAT: HTTPS stripping enabled for {}:{} -> {}:80",
+                    src_ip,
+                    src_port,
+                    dst_ip
+                );
 
-        // Create smoltcp TCP socket for the emulator side
-        let rx_buffer = tcp::SocketBuffer::new(vec![0; SMOLTCP_BUFFER_SIZE]);
-        let tx_buffer = tcp::SocketBuffer::new(vec![0; SMOLTCP_BUFFER_SIZE]);
-        let mut socket = tcp::Socket::new(rx_buffer, tx_buffer);
+                // Create smoltcp TCP socket for the emulator side
+                let rx_buffer = tcp::SocketBuffer::new(vec![0; SMOLTCP_BUFFER_SIZE]);
+                let tx_buffer = tcp::SocketBuffer::new(vec![0; SMOLTCP_BUFFER_SIZE]);
+                let mut socket = tcp::Socket::new(rx_buffer, tx_buffer);
 
-        // Listen on the DESTINATION endpoint from the packet (masquerading as the
-        // remote endpoint).
-        let dst_endpoint = IpEndpoint::new(IpAddress::Ipv4(dst_ip), dst_port);
-        socket.listen(dst_endpoint)?;
+                // Listen on port 80 on emulator side
+                let dst_endpoint = IpEndpoint::new(IpAddress::Ipv4(dst_ip), 80);
+                socket.listen(dst_endpoint)?;
 
-        let handle = self.sockets.add(socket);
+                let handle = self.sockets.add(socket);
 
-        log::debug!(
-            "Created TCP NAT entry: emulator {}:{} <-> smoltcp <-> OS {} <-> Internet {}:{}",
-            src_ip,
-            src_port,
-            os_socket.local_addr()?,
-            dst_ip,
-            dst_port
-        );
+                // Create entry without OS socket (will be established when we get Host header)
+                // Note: We store port 80 in remote_endpoint for duplicate detection,
+                // actual TLS connection will be to port 443
+                let entry = NatEntry::TcpHttpsStripping(TcpHttpsStrippingEntry {
+                    os_socket: Box::new(None),
+                    remote_endpoint: IpEndpoint::new(IpAddress::Ipv4(dst_ip), dst_port),
+                    local_endpoint: IpEndpoint::new(IpAddress::Ipv4(src_ip), src_port),
+                    expires_at: Instant::now() + NAT_TIMEOUT_TCP_OPEN,
+                    initial_buffer: Vec::new(),
+                });
 
-        // Create TCP NAT entry
-        let entry = NatEntry::Tcp {
-            os_socket,
-            remote_endpoint: IpEndpoint::new(IpAddress::Ipv4(dst_ip), dst_port),
-            local_endpoint: IpEndpoint::new(IpAddress::Ipv4(src_ip), src_port),
-            expires_at: Instant::now() + NAT_TIMEOUT_TCP_OPEN,
-        };
+                self.nat_table.insert(handle, entry);
+                self.stats.nat_total_tcp.fetch_add(1, Ordering::Relaxed);
 
-        self.nat_table.insert(handle, entry);
-        self.stats.nat_total_tcp.fetch_add(1, Ordering::Relaxed);
+                // Feed the SYN packet back to smoltcp so it can complete the handshake
+                self.device.smoltcp_queue.push(raw_packet.to_vec());
+            }
+            #[cfg(not(feature = "https_stripping"))]
+            unreachable!()
+        } else {
+            // Normal TCP connection
+            let remote_addr = SocketAddr::new(
+                std::net::IpAddr::V4(std::net::Ipv4Addr::from(dst_ip.0)),
+                dst_port,
+            );
 
-        // Feed the SYN packet back to smoltcp so it can complete the handshake
-        self.device.smoltcp_queue.push(raw_packet.to_vec());
+            let os_socket = TcpStream::connect_timeout(&remote_addr, Duration::from_secs(5))?;
+            os_socket.set_nonblocking(true)?;
+
+            // Create smoltcp TCP socket for the emulator side
+            let rx_buffer = tcp::SocketBuffer::new(vec![0; SMOLTCP_BUFFER_SIZE]);
+            let tx_buffer = tcp::SocketBuffer::new(vec![0; SMOLTCP_BUFFER_SIZE]);
+            let mut socket = tcp::Socket::new(rx_buffer, tx_buffer);
+
+            // Listen on the DESTINATION endpoint from the packet (masquerading as the
+            // remote endpoint).
+            let dst_endpoint = IpEndpoint::new(IpAddress::Ipv4(dst_ip), dst_port);
+            socket.listen(dst_endpoint)?;
+
+            let handle = self.sockets.add(socket);
+
+            log::debug!(
+                "Created TCP NAT entry: emulator {}:{} <-> smoltcp <-> OS {} <-> Internet {}:{}",
+                src_ip,
+                src_port,
+                os_socket.local_addr()?,
+                dst_ip,
+                dst_port
+            );
+
+            let entry = NatEntry::Tcp(TcpEntry {
+                os_socket,
+                remote_endpoint: IpEndpoint::new(IpAddress::Ipv4(dst_ip), dst_port),
+                local_endpoint: IpEndpoint::new(IpAddress::Ipv4(src_ip), src_port),
+                expires_at: Instant::now() + NAT_TIMEOUT_TCP_OPEN,
+            });
+
+            self.nat_table.insert(handle, entry);
+            self.stats.nat_total_tcp.fetch_add(1, Ordering::Relaxed);
+
+            // Feed the SYN packet back to smoltcp so it can complete the handshake
+            self.device.smoltcp_queue.push(raw_packet.to_vec());
+        }
 
         Ok(())
     }
@@ -778,7 +879,7 @@ impl NatEngine {
             .nat_table
             .iter()
             .filter_map(|(handle, entry)| {
-                if matches!(entry, NatEntry::Tcp { .. }) {
+                if matches!(entry, NatEntry::Tcp(_)) {
                     Some(*handle)
                 } else {
                     None
@@ -788,11 +889,7 @@ impl NatEngine {
 
         for handle in handles {
             let entry = match self.nat_table.get_mut(&handle) {
-                Some(NatEntry::Tcp {
-                    os_socket,
-                    expires_at,
-                    ..
-                }) => (os_socket, expires_at),
+                Some(NatEntry::Tcp(entry)) => entry,
                 _ => continue,
             };
 
@@ -804,7 +901,7 @@ impl NatEngine {
                     if !buffer.is_empty() {
                         // Write to OS socket and only consume as much as we could push
                         // out from the smoltcp receive buffer
-                        match entry.0.write(buffer) {
+                        match entry.os_socket.write(buffer) {
                             Ok(written) => (written, written),
                             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => (0, 0),
                             Err(e) => {
@@ -817,10 +914,10 @@ impl NatEngine {
                     }
                 }) {
                     Ok(_) => {
-                        *entry.1 = Instant::now() + NAT_TIMEOUT_TCP_OPEN;
+                        entry.expires_at = Instant::now() + NAT_TIMEOUT_TCP_OPEN;
                     }
                     Err(smoltcp::socket::tcp::RecvError::Finished) => {
-                        *entry.1 = Instant::now() + NAT_TIMEOUT_TCP_CLOSED;
+                        entry.expires_at = Instant::now() + NAT_TIMEOUT_TCP_CLOSED;
                         self.stats.nat_tcp_fin_local.fetch_add(1, Ordering::Relaxed);
                     }
                     Err(e) => {
@@ -833,13 +930,181 @@ impl NatEngine {
         Ok(())
     }
 
+    /// Forward data from smoltcp TCP sockets (emulator side) to TLS sockets
+    #[cfg(feature = "https_stripping")]
+    fn forward_smoltcp_to_tls(&mut self) -> Result<()> {
+        use smoltcp::socket::tcp;
+
+        // Handle HTTPS stripping connections
+        let https_handles: Vec<_> = self
+            .nat_table
+            .iter()
+            .filter_map(|(handle, entry)| {
+                if matches!(entry, NatEntry::TcpHttpsStripping(_)) {
+                    Some(*handle)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // Track handles that failed TLS establishment and should be aborted
+        let mut failed_handles = Vec::new();
+
+        for handle in https_handles {
+            let socket = self.sockets.get_mut::<tcp::Socket>(handle);
+
+            // Forward data from emulator (smoltcp) to Internet (TLS socket)
+            if socket.can_recv() {
+                let entry = match self.nat_table.get_mut(&handle) {
+                    Some(NatEntry::TcpHttpsStripping(entry)) => entry,
+                    _ => continue,
+                };
+
+                let mut tls_failed = false;
+
+                match socket.recv(|buffer| {
+                    if buffer.is_empty() {
+                        return (0, 0);
+                    }
+
+                    // If TLS connection not yet established, buffer data and try to extract Host
+                    if entry.os_socket.is_none() {
+                        // Append to initial buffer
+                        entry.initial_buffer.extend_from_slice(buffer);
+
+                        // Try to parse Host header
+                        match https_stripping::extract_http_host(&entry.initial_buffer) {
+                            Ok(hostname) => {
+                                log::debug!("HTTPS stripping: Extracted Host: {}", hostname);
+
+                                // Establish TLS connection using the hostname for SNI
+                                let dst_ip_addr = match entry.remote_endpoint.addr {
+                                    IpAddress::Ipv4(ip) => {
+                                        std::net::IpAddr::V4(std::net::Ipv4Addr::from(ip.0))
+                                    }
+                                    _ => {
+                                        log::error!("Non-IPv4 address in HTTPS stripping");
+                                        tls_failed = true;
+                                        return (buffer.len(), buffer.len());
+                                    }
+                                };
+
+                                match https_stripping::HttpsStrippingStream::connect(
+                                    &hostname,
+                                    dst_ip_addr,
+                                    443,
+                                ) {
+                                    Ok(mut tls_stream) => {
+                                        log::debug!(
+                                            "Established TLS connection to {} ({}:443)",
+                                            hostname,
+                                            dst_ip_addr
+                                        );
+
+                                        match tls_stream.write_all(&entry.initial_buffer) {
+                                            Ok(_) => {
+                                                // Now switch to non-blocking mode for ongoing forwarding
+                                                if let Err(e) = tls_stream.set_nonblocking(true) {
+                                                    log::error!(
+                                                        "Failed to set TLS stream non-blocking: {}",
+                                                        e
+                                                    );
+                                                    tls_failed = true;
+                                                    return (buffer.len(), buffer.len());
+                                                }
+
+                                                *entry.os_socket = Some(tls_stream);
+                                                entry.expires_at =
+                                                    Instant::now() + NAT_TIMEOUT_TCP_OPEN;
+                                                entry.initial_buffer.clear();
+                                                return (buffer.len(), buffer.len());
+                                            }
+                                            Err(e) => {
+                                                log::error!("Failed to write buffered data: {}", e);
+                                                tls_failed = true;
+                                                return (buffer.len(), buffer.len());
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        log::error!(
+                                            "Failed to establish TLS connection to {}:443: {}",
+                                            hostname,
+                                            e
+                                        );
+                                        tls_failed = true;
+                                        return (buffer.len(), buffer.len());
+                                    }
+                                }
+                            }
+                            Err(_e) => {
+                                // Not enough data yet or parse error
+                                return (buffer.len(), buffer.len());
+                            }
+                        }
+                    }
+
+                    // TLS connection is established, forward data
+                    if let Some(ref mut tls_socket) = *entry.os_socket {
+                        match tls_socket.write(buffer) {
+                            Ok(written) => {
+                                entry.expires_at = Instant::now() + NAT_TIMEOUT_TCP_OPEN;
+                                (written, written)
+                            }
+                            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => (0, 0),
+                            Err(e) => {
+                                log::warn!("Error writing to TLS socket: {}", e);
+                                (0, 0)
+                            }
+                        }
+                    } else {
+                        (0, 0)
+                    }
+                }) {
+                    Ok(_) => {}
+                    Err(smoltcp::socket::tcp::RecvError::Finished) => {
+                        if let Some(NatEntry::TcpHttpsStripping(entry)) =
+                            self.nat_table.get_mut(&handle)
+                        {
+                            entry.expires_at = Instant::now() + NAT_TIMEOUT_TCP_CLOSED;
+                            self.stats.nat_tcp_fin_local.fetch_add(1, Ordering::Relaxed);
+                        }
+                    }
+                    Err(e) => {
+                        log::error!(
+                            "TCP error receiving from emulator (HTTPS stripping): {:?}",
+                            e
+                        );
+                    }
+                }
+
+                // If TLS failed, mark for abort
+                if tls_failed {
+                    failed_handles.push(handle);
+                }
+            }
+        }
+
+        // Abort connections that failed TLS establishment
+        for handle in failed_handles {
+            log::error!("Aborting connection due to TLS failure");
+            let socket = self.sockets.get_mut::<tcp::Socket>(handle);
+            socket.abort();
+            self.nat_table.remove(&handle);
+            self.sockets.remove(handle);
+        }
+
+        Ok(())
+    }
+
     /// Forward data from OS UDP sockets back to the emulator (via smoltcp)
     fn forward_udp_os_to_smoltcp(&mut self) -> Result<()> {
         let handles: Vec<_> = self
             .nat_table
             .iter()
             .filter_map(|(handle, entry)| {
-                if matches!(entry, NatEntry::Udp { .. }) {
+                if matches!(entry, NatEntry::Udp(_)) {
                     Some(*handle)
                 } else {
                     None
@@ -850,7 +1115,7 @@ impl NatEngine {
         for handle in handles {
             let local_endpoint = {
                 let entry = match self.nat_table.get(&handle) {
-                    Some(NatEntry::Udp { local_endpoint, .. }) => *local_endpoint,
+                    Some(NatEntry::Udp(entry)) => entry.local_endpoint,
                     _ => continue,
                 };
                 entry
@@ -858,19 +1123,15 @@ impl NatEngine {
 
             // Get mutable access to entry
             let entry = match self.nat_table.get_mut(&handle) {
-                Some(NatEntry::Udp {
-                    os_socket,
-                    expires_at,
-                    ..
-                }) => (os_socket, expires_at),
+                Some(NatEntry::Udp(entry)) => entry,
                 _ => continue,
             };
 
             // Try to receive from OS socket (response from internet)
-            match entry.0.recv_from(&mut self.recv_buffer) {
+            match entry.os_socket.recv_from(&mut self.recv_buffer) {
                 Ok((len, _from_addr)) => {
                     // Keep entry alive
-                    *entry.1 = Instant::now() + NAT_TIMEOUT_UDP;
+                    entry.expires_at = Instant::now() + NAT_TIMEOUT_UDP;
 
                     // Send response via smoltcp UDP socket
                     let socket = self.sockets.get_mut::<udp::Socket>(handle);
@@ -894,11 +1155,12 @@ impl NatEngine {
     fn forward_tcp_os_to_smoltcp(&mut self) -> Result<()> {
         use smoltcp::socket::tcp;
 
+        // Handle regular TCP connections
         let handles: Vec<_> = self
             .nat_table
             .iter()
             .filter_map(|(handle, entry)| {
-                if matches!(entry, NatEntry::Tcp { .. }) {
+                if matches!(entry, NatEntry::Tcp(_)) {
                     Some(*handle)
                 } else {
                     None
@@ -908,11 +1170,7 @@ impl NatEngine {
 
         for handle in handles {
             let entry = match self.nat_table.get_mut(&handle) {
-                Some(NatEntry::Tcp {
-                    os_socket,
-                    expires_at,
-                    ..
-                }) => (os_socket, expires_at),
+                Some(NatEntry::Tcp(entry)) => entry,
                 _ => continue,
             };
 
@@ -920,21 +1178,21 @@ impl NatEngine {
 
             // Forward data from Internet (OS socket) to emulator (smoltcp)
             if socket.can_send() {
-                match entry.0.read(&mut self.recv_buffer) {
+                match entry.os_socket.read(&mut self.recv_buffer) {
                     Ok(0) => {
                         // Connection closed by remote
                         self.stats
                             .nat_tcp_fin_remote
                             .fetch_add(1, Ordering::Relaxed);
                         socket.close();
-                        *entry.1 = Instant::now() + NAT_TIMEOUT_TCP_CLOSED;
+                        entry.expires_at = Instant::now() + NAT_TIMEOUT_TCP_CLOSED;
                     }
                     Ok(len) => {
                         // Write data to smoltcp socket
                         // smoltcp will handle fragmentation and MTU
                         match socket.send_slice(&self.recv_buffer[..len]) {
                             Ok(_written) => {
-                                *entry.1 = Instant::now() + NAT_TIMEOUT_TCP_OPEN;
+                                entry.expires_at = Instant::now() + NAT_TIMEOUT_TCP_OPEN;
                             }
                             Err(e) => {
                                 log::warn!("Error sending to smoltcp socket: {}", e);
@@ -947,6 +1205,74 @@ impl NatEngine {
                     Err(e) => {
                         log::warn!("Error receiving from OS socket: {}", e);
                     }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Forward TCP data from TLS sockets (Internet side) to smoltcp sockets (emulator side)
+    #[cfg(feature = "https_stripping")]
+    fn forward_tls_to_smoltcp(&mut self) -> Result<()> {
+        use smoltcp::socket::tcp;
+
+        let https_handles: Vec<_> = self
+            .nat_table
+            .iter()
+            .filter_map(|(handle, entry)| {
+                if matches!(entry, NatEntry::TcpHttpsStripping(_)) {
+                    Some(*handle)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        for handle in https_handles {
+            let entry = match self.nat_table.get_mut(&handle) {
+                Some(NatEntry::TcpHttpsStripping(entry)) => entry,
+                _ => continue,
+            };
+
+            // Skip if TLS connection not yet established
+            let Some(ref mut tls_socket) = *entry.os_socket else {
+                continue;
+            };
+
+            let socket = self.sockets.get_mut::<tcp::Socket>(handle);
+
+            if !socket.can_send() {
+                continue;
+            }
+
+            match tls_socket.read(&mut self.recv_buffer) {
+                Ok(0) => {
+                    // Connection closed by remote
+                    log::debug!("HTTPS stripping: TLS socket closed by remote");
+                    self.stats
+                        .nat_tcp_fin_remote
+                        .fetch_add(1, Ordering::Relaxed);
+                    socket.close();
+                    entry.expires_at = Instant::now() + NAT_TIMEOUT_TCP_CLOSED;
+                }
+                Ok(len) => {
+                    // Write data to smoltcp socket
+                    // The rewriting already happened in the Read impl
+                    match socket.send_slice(&self.recv_buffer[..len]) {
+                        Ok(_written) => {
+                            entry.expires_at = Instant::now() + NAT_TIMEOUT_TCP_OPEN;
+                        }
+                        Err(e) => {
+                            log::error!("HTTPS stripping: Error sending to smoltcp socket: {}", e);
+                        }
+                    }
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    // No data available
+                }
+                Err(e) => {
+                    log::error!("Error receiving from TLS socket: {}", e);
                 }
             }
         }
@@ -993,12 +1319,12 @@ impl NatEngine {
             let endpoint_addr = listen_endpoint.addr.unwrap_or(self.gateway_ip);
             let local_endpoint = IpEndpoint::new(endpoint_addr, listen_endpoint.port);
 
-            let entry = NatEntry::Udp {
+            let entry = NatEntry::Udp(UdpEntry {
                 os_socket,
                 remote_endpoint: IpEndpoint::new(IpAddress::v4(0, 0, 0, 0), 0),
                 local_endpoint,
                 expires_at: Instant::now() + NAT_TIMEOUT_UDP,
-            };
+            });
 
             self.nat_table.insert(handle, entry);
         }

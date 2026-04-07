@@ -5,6 +5,7 @@ use std::path::Path;
 use anyhow::Result;
 
 use crate::debuggable::Debuggable;
+use crate::mac::scsi::disk_image::DiskImage;
 use crate::mac::scsi::{
     ScsiCmdResult, ASC_INVALID_FIELD_IN_CDB, ASC_LOGICAL_BLOCK_ADDRESS_OUT_OF_RANGE,
     ASC_MEDIUM_NOT_PRESENT, CC_KEY_ILLEGAL_REQUEST, CC_KEY_MEDIUM_ERROR, STATUS_CHECK_CONDITION,
@@ -47,6 +48,18 @@ pub(crate) trait ScsiTarget: Send + Debuggable {
     fn eth_set_link(&mut self, link: super::ethernet::EthernetLinkType) -> Result<()>;
     #[cfg(feature = "ethernet")]
     fn eth_link(&self) -> Option<super::ethernet::EthernetLinkType>;
+    #[cfg(feature = "ethernet")]
+    fn eth_start_capture(&mut self, _filename: &Path) -> Result<()> {
+        anyhow::bail!("Not an ethernet device")
+    }
+    #[cfg(feature = "ethernet")]
+    fn eth_stop_capture(&mut self) -> Option<(std::path::PathBuf, usize)> {
+        None
+    }
+    #[cfg(feature = "ethernet")]
+    fn eth_capture_status(&self) -> Option<crate::emulator::comm::EthernetCaptureStatus> {
+        None
+    }
 
     /// Request sense result (code, asc, ascq)
     fn req_sense(&mut self) -> (u8, u16);
@@ -58,6 +71,7 @@ pub(crate) trait ScsiTarget: Send + Debuggable {
     fn write(&mut self, block_offset: usize, data: &[u8]);
     fn image_fn(&self) -> Option<&Path>;
     fn load_media(&mut self, path: &Path) -> Result<()>;
+    fn load_image(&mut self, image: Box<dyn DiskImage>) -> Result<()>;
     fn branch_media(&mut self, path: &Path) -> Result<()>;
     fn media(&self) -> Option<&[u8]>;
 
